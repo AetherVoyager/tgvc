@@ -443,7 +443,7 @@ async def join_and_play(link, seek, pic, width, height):
                         int(Config.CHAT),
                         MediaStream(
                             link,
-                            video_parameters=VideoQuality.HIGH,
+                            video_parameters=get_video_quality(),
                             audio_parameters=AudioQuality.HIGH,
                         ),
                     )
@@ -461,7 +461,7 @@ async def join_and_play(link, seek, pic, width, height):
                         int(Config.CHAT),
                         MediaStream(
                             link,
-                            video_parameters=VideoQuality.HIGH,
+                            video_parameters=get_video_quality(),
                             audio_parameters=AudioQuality.HIGH,
                         ),
                     )
@@ -515,7 +515,7 @@ async def change_file(link, seek, pic, width, height):
                         int(Config.CHAT),
                         MediaStream(
                             link,
-                            video_parameters=VideoQuality.HIGH,
+                            video_parameters=get_video_quality(),
                             audio_parameters=AudioQuality.HIGH,
                             additional_ffmpeg_parameters=f'-ss {start} -atend -t {end}',
                         ),
@@ -535,7 +535,7 @@ async def change_file(link, seek, pic, width, height):
                         int(Config.CHAT),
                         MediaStream(
                             link,
-                            video_parameters=VideoQuality.HIGH,
+                            video_parameters=get_video_quality(),
                             audio_parameters=AudioQuality.HIGH,
                             additional_ffmpeg_parameters=f'-ss {start} -atend -t {end}',
                         ),
@@ -556,7 +556,7 @@ async def change_file(link, seek, pic, width, height):
                         int(Config.CHAT),
                         MediaStream(
                             link,
-                            video_parameters=VideoQuality.HIGH,
+                            video_parameters=get_video_quality(),
                             audio_parameters=AudioQuality.HIGH,
                         ),
                     )
@@ -574,7 +574,7 @@ async def change_file(link, seek, pic, width, height):
                         int(Config.CHAT),
                         MediaStream(
                             link,
-                            video_parameters=VideoQuality.HIGH,
+                            video_parameters=get_video_quality(),
                             audio_parameters=AudioQuality.HIGH,
                         ),
                     )
