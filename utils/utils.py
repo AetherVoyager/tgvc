@@ -69,8 +69,7 @@ try:
     )
     from pytgcalls.exceptions import (
     NoActiveGroupCall,
-    InvalidVideoProportion,
-    TelegramServerError
+    InvalidVideoProportion
 )
     from PIL import (
         Image, 
@@ -504,21 +503,22 @@ async def join_and_play(link, seek, pic, width, height):
             else:
                 LOGGER.error("This stream is not supported , leaving VC.")
                 return 
-        except TelegramServerError as e:
-            LOGGER.error(f"Telegram server error while joining call: {e}")
-            LOGGER.info("This usually means connection issues. Waiting before retry...")
-            await sleep(10)  # Wait longer for server issues
-            return False
         except Exception as e:
-            LOGGER.error(f"Errors Occured while joining, retrying Error- {e}", exc_info=True)
-            retry_count += 1
-            if retry_count < max_retries:
-                LOGGER.info(f"Retrying in 5 seconds... (attempt {retry_count + 1}/{max_retries})")
-                await sleep(5)
-                continue
-            else:
-                LOGGER.error(f"Max retries ({max_retries}) reached. Giving up.")
+            if "TelegramServerError" in str(e) or "ntgcalls" in str(e):
+                LOGGER.error(f"Telegram server error while joining call: {e}")
+                LOGGER.info("This usually means connection issues. Waiting before retry...")
+                await sleep(10)  # Wait longer for server issues
                 return False
+            else:
+                LOGGER.error(f"Errors Occured while joining, retrying Error- {e}", exc_info=True)
+                retry_count += 1
+                if retry_count < max_retries:
+                    LOGGER.info(f"Retrying in 5 seconds... (attempt {retry_count + 1}/{max_retries})")
+                    await sleep(5)
+                    continue
+                else:
+                    LOGGER.error(f"Max retries ({max_retries}) reached. Giving up.")
+                    return False
     
     LOGGER.error("Unexpected end of retry loop")
     return False
