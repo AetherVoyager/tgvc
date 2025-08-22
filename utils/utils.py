@@ -69,7 +69,8 @@ try:
     )
     from pytgcalls.exceptions import (
     NoActiveGroupCall,
-    InvalidVideoProportion
+    InvalidVideoProportion,
+    TelegramServerError
 )
     from PIL import (
         Image, 
@@ -384,7 +385,12 @@ async def start_scheduled():
             return await check_vc()
 
 async def join_and_play(link, seek, pic, width, height):
-    try:
+    max_retries = 3
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            LOGGER.info(f"Attempting to join call (attempt {retry_count + 1}/{max_retries})")
         if seek:
             start=str(seek['start'])
             end=str(seek['end'])
@@ -466,6 +472,7 @@ async def join_and_play(link, seek, pic, width, height):
                         ),
                     )
         Config.CALL_STATUS=True
+        LOGGER.info("Successfully joined and started playing media")
         return True
     except NoActiveGroupCall:
         try:
@@ -477,11 +484,18 @@ async def join_and_play(link, seek, pic, width, height):
                 )
             if Config.WAS_RECORDING:
                 await start_record_stream()
-            await sleep(2)
-            await restart_playout()
+            LOGGER.info("Waiting for group call to be fully established...")
+            await sleep(5)  # Wait longer for connection to stabilize
+            # Verify the call is active before proceeding
+            if await check_vc():
+                LOGGER.info("Group call established successfully, restarting playout")
+                await restart_playout()
+            else:
+                LOGGER.error("Failed to establish group call connection")
+                return False
         except Exception as e:
             LOGGER.error(f"Unable to start new GroupCall :- {e}", exc_info=True)
-            pass
+            return False
     except InvalidVideoProportion:
         LOGGER.error("This video is unsupported")
         if Config.playlist or Config.STREAM_LINK:
@@ -489,9 +503,24 @@ async def join_and_play(link, seek, pic, width, height):
         else:
             LOGGER.error("This stream is not supported , leaving VC.")
             return 
+    except TelegramServerError as e:
+        LOGGER.error(f"Telegram server error while joining call: {e}")
+        LOGGER.info("This usually means connection issues. Waiting before retry...")
+        await sleep(10)  # Wait longer for server issues
+        return False
     except Exception as e:
         LOGGER.error(f"Errors Occured while joining, retrying Error- {e}", exc_info=True)
-        return False
+        retry_count += 1
+        if retry_count < max_retries:
+            LOGGER.info(f"Retrying in 5 seconds... (attempt {retry_count + 1}/{max_retries})")
+            await sleep(5)
+            continue
+        else:
+            LOGGER.error(f"Max retries ({max_retries}) reached. Giving up.")
+            return False
+    
+    LOGGER.error("Unexpected end of retry loop")
+    return False
 
 
 async def change_file(link, seek, pic, width, height):
