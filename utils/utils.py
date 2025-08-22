@@ -411,7 +411,8 @@ async def join_and_play(link, seek, pic, width, height):
                             MediaStream(
                                 link,
                                 video_parameters=get_video_quality(),
-                                additional_ffmpeg_parameters=f'-ss {start} -atend -t {end}',
+                                audio_parameters=AudioQuality.HIGH,
+                                additional_ffmpeg_parameters=f'-ss {start} -atend -t {end} -r 30 -vf scale={cwidth}:{cheight}',
                             ),
                         )
                     else:
@@ -429,7 +430,7 @@ async def join_and_play(link, seek, pic, width, height):
                                 link,
                                 video_parameters=get_video_quality(),
                                 audio_parameters=AudioQuality.HIGH,
-                                additional_ffmpeg_parameters=f'-ss {start} -atend -t {end}',
+                                additional_ffmpeg_parameters=f'-ss {start} -atend -t {end} -r 30 -vf scale={cwidth}:{cheight}',
                             ),
                         )
             else:
@@ -450,6 +451,7 @@ async def join_and_play(link, seek, pic, width, height):
                                 link,
                                 video_parameters=get_video_quality(),
                                 audio_parameters=AudioQuality.HIGH,
+                                additional_ffmpeg_parameters=f'-r 30 -vf scale={cwidth}:{cheight}',
                             ),
                         )
                     else:
@@ -467,11 +469,13 @@ async def join_and_play(link, seek, pic, width, height):
                                 link,
                                 video_parameters=get_video_quality(),
                                 audio_parameters=AudioQuality.HIGH,
+                                additional_ffmpeg_parameters=f'-r 30 -vf scale={cwidth}:{cheight}',
                             ),
                         )
             
             Config.CALL_STATUS=True
             LOGGER.info("Successfully joined and started playing media")
+            LOGGER.info(f"Video parameters: {get_video_quality()}, Dimensions: {width}x{height}, Quality: {Config.CUSTOM_QUALITY}")
             
             # Start a timer to detect stream end
             asyncio.create_task(stream_end_monitor(link, seek))
