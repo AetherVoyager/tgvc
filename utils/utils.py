@@ -412,7 +412,7 @@ async def join_and_play(link, seek, pic, width, height):
                                 link,
                                 video_parameters=get_video_quality(),
                                 audio_parameters=AudioQuality.HIGH,
-                                ffmpeg_parameters=f'-ss {start} -atend -t {end} -r 30 -vf scale={cwidth}:{cheight}',
+                                ffmpeg_parameters=f'-ss {start} -t {end}',
                             ),
                         )
                     else:
@@ -430,7 +430,7 @@ async def join_and_play(link, seek, pic, width, height):
                                 link,
                                 video_parameters=get_video_quality(),
                                 audio_parameters=AudioQuality.HIGH,
-                                ffmpeg_parameters=f'-ss {start} -atend -t {end} -r 30 -vf scale={cwidth}:{cheight}',
+                                ffmpeg_parameters=f'-ss {start} -t {end}',
                             ),
                         )
             else:
@@ -451,7 +451,6 @@ async def join_and_play(link, seek, pic, width, height):
                                 link,
                                 video_parameters=get_video_quality(),
                                 audio_parameters=AudioQuality.HIGH,
-                                ffmpeg_parameters=f'-r 30 -vf scale={cwidth}:{cheight}',
                             ),
                         )
                     else:
@@ -469,7 +468,6 @@ async def join_and_play(link, seek, pic, width, height):
                                 link,
                                 video_parameters=get_video_quality(),
                                 audio_parameters=AudioQuality.HIGH,
-                                ffmpeg_parameters=f'-r 30 -vf scale={cwidth}:{cheight}',
                             ),
                         )
             
@@ -477,8 +475,9 @@ async def join_and_play(link, seek, pic, width, height):
             LOGGER.info("Successfully joined and started playing media")
             LOGGER.info(f"Video parameters: {get_video_quality()}, Dimensions: {width}x{height}, Quality: {Config.CUSTOM_QUALITY}")
             
-            # Start a timer to detect stream end
-            asyncio.create_task(stream_end_monitor(link, seek))
+            # Start a timer to detect stream end (simplified)
+            if not seek:  # Only monitor non-seeked streams
+                asyncio.create_task(stream_end_monitor(link, seek))
             
             return True
             
@@ -546,7 +545,7 @@ async def stream_end_monitor(link, seek):
         
         if duration > 0:
             LOGGER.info(f"Stream will end in {duration} seconds")
-            await sleep(duration + 2)  # Wait for duration + buffer
+            await sleep(duration + 5)  # Wait for duration + longer buffer
             
             # Check if we're still in the same call
             if Config.CALL_STATUS and Config.IS_ACTIVE:
@@ -561,8 +560,8 @@ async def stream_end_monitor(link, seek):
                     LOGGER.error(f"Error leaving group call: {e}")
         else:
             LOGGER.warning("Could not determine media duration, using fallback timer")
-            # Fallback: wait 5 minutes then check if still active
-            await sleep(300)
+            # Fallback: wait 10 minutes then check if still active
+            await sleep(600)
             if Config.CALL_STATUS and Config.IS_ACTIVE:
                 LOGGER.info("Fallback timer expired, ending stream...")
                 try:
