@@ -1,14 +1,12 @@
 pyrofork
-py-tgcalls==0.9.7
-parse-torrent-name
-tgcrypto
+py-tgcalls>=2.2.6
 yt-dlp
 ffmpeg
 youtube-search-python
-httpx==0.23.0
+httpx>=0.24.0
 youtube-search
 heroku3
-Pillow==9.5.0
+Pillow>=9.5.0
 motor
 dnspython
 pytz

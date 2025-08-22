@@ -6,7 +6,13 @@ from yt_dlp import YoutubeDL
 from datetime import datetime
 from pyrogram import filters, enums
 from config import Config
-from PTN import parse
+try:
+    from PTN import parse
+    PTN_AVAILABLE = True
+except ImportError:
+    PTN_AVAILABLE = False
+    def parse(title):
+        return {"title": title}
 import re
 from utils import (
     add_to_db_playlist, 

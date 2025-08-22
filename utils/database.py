@@ -1,9 +1,9 @@
 from .logger import LOGGER
 import motor.motor_asyncio
-from config import Config
 
 class Database:    
     def __init__(self):
+        from config import Config
         self._client = motor.motor_asyncio.AsyncIOMotorClient(Config.DATABASE_URI)
         self.db = self._client[Config.DATABASE_NAME]
         self.col = self.db.config
@@ -76,4 +76,13 @@ class Database:
             l.append(song_)
         return l
 
-db=Database()
+_db_instance = None
+
+def get_db():
+    """Get database instance (lazy initialization)"""
+    global _db_instance
+    if _db_instance is None:
+        _db_instance = Database()
+    return _db_instance
+
+# Don't initialize at module level - will be done when needed

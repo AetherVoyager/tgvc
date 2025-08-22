@@ -14,7 +14,8 @@ import asyncio
 import os
 
 if Config.DATABASE_URI:
-    from utils import db
+    from utils.database import get_db
+    db = get_db()
 
 
 async def main():

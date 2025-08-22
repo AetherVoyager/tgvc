@@ -7,7 +7,6 @@ try:
     from apscheduler.jobstores.base import ConflictingIdError
     from pyrogram.raw.functions.channels import GetFullChannel
     from urllib.parse import urlparse, parse_qs
-    from pytgcalls import StreamType
     import yt_dlp
     from pyrogram import filters
     from pymongo import MongoClient
@@ -19,7 +18,13 @@ try:
     from asyncio import sleep  
     from bot import bot
     from pyrogram import enums
-    from PTN import parse
+    try:
+        from PTN import parse
+        PTN_AVAILABLE = True
+    except ImportError:
+        PTN_AVAILABLE = False
+        def parse(title):
+            return {"title": title}
     from config import Config
     import subprocess
     import asyncio
@@ -37,15 +42,20 @@ try:
         PeerIdInvalid,
         ChannelInvalid
     )
-    from pytgcalls.types.input_stream import (
-        AudioVideoPiped, 
-        AudioPiped,
-        AudioImagePiped
-    )
-    from pytgcalls.types.input_stream import (
-        AudioParameters,
-        VideoParameters
-    )
+    from pytgcalls.types.stream import MediaStream, AudioQuality, VideoQuality
+    from pytgcalls.types.stream.external_media import ExternalMedia
+
+    def get_video_quality():
+        """Convert config quality string to VideoQuality enum"""
+        quality_map = {
+            'UHD_4K': VideoQuality.UHD_4K,
+            'QHD_2K': VideoQuality.QHD_2K,
+            'FHD_1080p': VideoQuality.FHD_1080p,
+            'HD_720p': VideoQuality.HD_720p,
+            'SD_480p': VideoQuality.SD_480p,
+            'SD_360p': VideoQuality.SD_360p,
+        }
+        return quality_map.get(Config.CUSTOM_QUALITY, VideoQuality.FHD_1080p)
     from pyrogram.types import (
         InlineKeyboardButton, 
         InlineKeyboardMarkup, 
@@ -58,10 +68,9 @@ try:
         StartScheduledGroupCall 
     )
     from pytgcalls.exceptions import (
-        GroupCallNotFound, 
-        NoActiveGroupCall,
-        InvalidVideoProportion
-    )
+    NoActiveGroupCall,
+    InvalidVideoProportion
+)
     from PIL import (
         Image, 
         ImageFont, 
@@ -81,7 +90,8 @@ except ModuleNotFoundError:
     os.execl(sys.executable, sys.executable, *sys.argv)
 
 if Config.DATABASE_URI:
-    from .database import db
+    from .database import get_db
+    db = get_db()
     monclient = MongoClient(Config.DATABASE_URI)
     jobstores = {
         'default': MongoDBJobStore(client=monclient, database=Config.DATABASE_NAME, collection='scheduler')
@@ -374,35 +384,24 @@ async def join_and_play(link, seek, pic, width, height):
             start=str(seek['start'])
             end=str(seek['end'])
             if not Config.IS_VIDEO:
-                await group_call.join_group_call(
+                await group_call.play(
                     int(Config.CHAT),
-                    AudioPiped(
+                    MediaStream(
                         link,
-                        audio_parameters=AudioParameters(
-                            Config.BITRATE
-                            ),
+                        audio_parameters=AudioQuality.HIGH,
                         additional_ffmpeg_parameters=f'-ss {start} -atend -t {end}',
-                        ),
-                    stream_type=StreamType().pulse_stream,
+                    ),
                 )
             else:
                 if pic:
                     cwidth, cheight = resize_ratio(1280, 720, Config.CUSTOM_QUALITY)
-                    await group_call.join_group_call(
+                    await group_call.play(
                         int(Config.CHAT),
-                        AudioImagePiped(
+                        MediaStream(
                             link,
-                            pic,
-                            video_parameters=VideoParameters(
-                                cwidth,
-                                cheight,
-                                Config.FPS,
-                            ),
-                            audio_parameters=AudioParameters(
-                                Config.BITRATE,
-                            ),
-                            additional_ffmpeg_parameters=f'-ss {start} -atend -t {end}',                        ),
-                        stream_type=StreamType().pulse_stream,
+                            video_parameters=get_video_quality(),
+                            additional_ffmpeg_parameters=f'-ss {start} -atend -t {end}',
+                        ),
                     )
                 else:
                     if not width \
@@ -414,52 +413,34 @@ async def join_and_play(link, seek, pic, width, height):
                             LOGGER.error("This stream is not supported , leaving VC.")
                             return 
                     cwidth, cheight = resize_ratio(width, height, Config.CUSTOM_QUALITY)
-                    await group_call.join_group_call(
+                    await group_call.play(
                         int(Config.CHAT),
-                        AudioVideoPiped(
+                        MediaStream(
                             link,
-                            video_parameters=VideoParameters(
-                                cwidth,
-                                cheight,
-                                Config.FPS,
-                            ),
-                            audio_parameters=AudioParameters(
-                                Config.BITRATE
-                            ),
+                            video_parameters=get_video_quality(),
+                            audio_parameters=AudioQuality.HIGH,
                             additional_ffmpeg_parameters=f'-ss {start} -atend -t {end}',
-                            ),
-                        stream_type=StreamType().pulse_stream,
+                        ),
                     )
         else:
             if not Config.IS_VIDEO:
-                await group_call.join_group_call(
+                await group_call.play(
                     int(Config.CHAT),
-                    AudioPiped(
+                    MediaStream(
                         link,
-                        audio_parameters=AudioParameters(
-                            Config.BITRATE
-                            ),
-                        ),
-                    stream_type=StreamType().pulse_stream,
+                        audio_parameters=AudioQuality.HIGH,
+                    ),
                 )
             else:
                 if pic:
                     cwidth, cheight = resize_ratio(1280, 720, Config.CUSTOM_QUALITY)
-                    await group_call.join_group_call(
+                    await group_call.play(
                         int(Config.CHAT),
-                        AudioImagePiped(
+                        MediaStream(
                             link,
-                            pic,
-                            video_parameters=VideoParameters(
-                                cwidth,
-                                cheight,
-                                Config.FPS,
-                            ),
-                            audio_parameters=AudioParameters(
-                                Config.BITRATE,
-                            ),      
-                            ),
-                        stream_type=StreamType().pulse_stream,
+                            video_parameters=VideoQuality.HIGH,
+                            audio_parameters=AudioQuality.HIGH,
+                        ),
                     )
                 else:
                     if not width \
@@ -471,20 +452,13 @@ async def join_and_play(link, seek, pic, width, height):
                             LOGGER.error("This stream is not supported , leaving VC.")
                             return 
                     cwidth, cheight = resize_ratio(width, height, Config.CUSTOM_QUALITY)
-                    await group_call.join_group_call(
+                    await group_call.play(
                         int(Config.CHAT),
-                        AudioVideoPiped(
+                        MediaStream(
                             link,
-                            video_parameters=VideoParameters(
-                                cwidth,
-                                cheight,
-                                Config.FPS,
-                            ),
-                            audio_parameters=AudioParameters(
-                                Config.BITRATE
-                            ),
+                            video_parameters=VideoQuality.HIGH,
+                            audio_parameters=AudioQuality.HIGH,
                         ),
-                        stream_type=StreamType().pulse_stream,
                     )
         Config.CALL_STATUS=True
         return True
@@ -521,33 +495,25 @@ async def change_file(link, seek, pic, width, height):
             start=str(seek['start'])
             end=str(seek['end'])
             if not Config.IS_VIDEO:
-                await group_call.change_stream(
+                await group_call.play(
                     int(Config.CHAT),
-                    AudioPiped(
+                    MediaStream(
                         link,
-                        audio_parameters=AudioParameters(
-                            Config.BITRATE
-                            ),
+                        audio_quality=AudioQuality.HIGH,
                         additional_ffmpeg_parameters=f'-ss {start} -atend -t {end}',
-                        ),
+                    ),
                 )
             else:
                 if pic:
                     cwidth, cheight = resize_ratio(1280, 720, Config.CUSTOM_QUALITY)
-                    await group_call.change_stream(
+                    await group_call.play(
                         int(Config.CHAT),
-                        AudioImagePiped(
+                        MediaStream(
                             link,
-                            pic,
-                            video_parameters=VideoParameters(
-                                cwidth,
-                                cheight,
-                                Config.FPS,
-                            ),
-                            audio_parameters=AudioParameters(
-                                Config.BITRATE,
-                            ),
-                            additional_ffmpeg_parameters=f'-ss {start} -atend -t {end}',                        ),
+                            video_parameters=VideoQuality.HIGH,
+                            audio_parameters=AudioQuality.HIGH,
+                            additional_ffmpeg_parameters=f'-ss {start} -atend -t {end}',
+                        ),
                     )
                 else:
                     if not width \
@@ -560,48 +526,33 @@ async def change_file(link, seek, pic, width, height):
                             return 
 
                     cwidth, cheight = resize_ratio(width, height, Config.CUSTOM_QUALITY)
-                    await group_call.change_stream(
+                    await group_call.play(
                         int(Config.CHAT),
-                        AudioVideoPiped(
+                        MediaStream(
                             link,
-                            video_parameters=VideoParameters(
-                                cwidth,
-                                cheight,
-                                Config.FPS,
-                            ),
-                            audio_parameters=AudioParameters(
-                                Config.BITRATE
-                            ),
+                            video_parameters=VideoQuality.HIGH,
+                            audio_parameters=AudioQuality.HIGH,
                             additional_ffmpeg_parameters=f'-ss {start} -atend -t {end}',
                         ),
-                        )
+                    )
         else:
             if not Config.IS_VIDEO:
-                await group_call.change_stream(
+                await group_call.play(
                     int(Config.CHAT),
-                    AudioPiped(
+                    MediaStream(
                         link,
-                        audio_parameters=AudioParameters(
-                            Config.BITRATE
-                            ),
-                        ),
+                        audio_parameters=AudioQuality.HIGH,
+                    ),
                 )
             else:
                 if pic:
                     cwidth, cheight = resize_ratio(1280, 720, Config.CUSTOM_QUALITY)
-                    await group_call.change_stream(
+                    await group_call.play(
                         int(Config.CHAT),
-                        AudioImagePiped(
+                        MediaStream(
                             link,
-                            pic,
-                            video_parameters=VideoParameters(
-                                cwidth,
-                                cheight,
-                                Config.FPS,
-                            ),
-                            audio_parameters=AudioParameters(
-                                Config.BITRATE,
-                            ),
+                            video_parameters=VideoQuality.HIGH,
+                            audio_parameters=AudioQuality.HIGH,
                         ),
                     )
                 else:
@@ -614,20 +565,14 @@ async def change_file(link, seek, pic, width, height):
                             LOGGER.error("This stream is not supported , leaving VC.")
                             return 
                     cwidth, cheight = resize_ratio(width, height, Config.CUSTOM_QUALITY)
-                    await group_call.change_stream(
+                    await group_call.play(
                         int(Config.CHAT),
-                        AudioVideoPiped(
+                        MediaStream(
                             link,
-                            video_parameters=VideoParameters(
-                                cwidth,
-                                cheight,
-                                Config.FPS,
-                            ),
-                            audio_parameters=AudioParameters(
-                                Config.BITRATE,
-                            ),
+                            video_parameters=VideoQuality.HIGH,
+                            audio_parameters=AudioQuality.HIGH,
                         ),
-                        )
+                    )
     except InvalidVideoProportion:
         LOGGER.error("Invalid video, skipped")
         if Config.playlist or Config.STREAM_LINK:
@@ -667,7 +612,7 @@ async def seek_file(seektime):
 
 async def leave_call():
     try:
-        await group_call.leave_group_call(Config.CHAT)
+        await group_call.stop(Config.CHAT)
     except Exception as e:
         LOGGER.error(f"Errors while leaving call {e}", exc_info=True)
     #Config.playlist.clear()
@@ -703,7 +648,7 @@ async def leave_call():
 
 async def restart():
     try:
-        await group_call.leave_group_call(Config.CHAT)
+        await group_call.stop(Config.CHAT)
         await sleep(2)
     except Exception as e:
         LOGGER.error(e, exc_info=True)
@@ -1382,11 +1327,11 @@ async def c_play(channel):
 
 async def pause():
     try:
-        await group_call.pause_stream(Config.CHAT)
+        await group_call.pause(Config.CHAT)
         Config.DUR['PAUSE'] = time.time()
         Config.PAUSE=True
         return True
-    except GroupCallNotFound:
+    except NoActiveGroupCall:
         await restart_playout()
         return False
     except Exception as e:
@@ -1396,7 +1341,7 @@ async def pause():
 
 async def resume():
     try:
-        await group_call.resume_stream(Config.CHAT)
+        await group_call.resume(Config.CHAT)
         pause=Config.DUR.get('PAUSE')
         if pause:
             diff = time.time() - pause
@@ -1405,7 +1350,7 @@ async def resume():
                 Config.DUR['TIME']=start+diff
         Config.PAUSE=False
         return True
-    except GroupCallNotFound:
+    except NoActiveGroupCall:
         await restart_playout()
         return False
     except Exception as e:
@@ -1415,7 +1360,7 @@ async def resume():
 
 async def volume(volume):
     try:
-        await group_call.change_volume_call(Config.CHAT, volume)
+        await group_call.volume(Config.CHAT, volume)
         Config.VOLUME=int(volume)
     except BadRequest:
         await restart_playout()
@@ -1424,9 +1369,9 @@ async def volume(volume):
     
 async def mute():
     try:
-        await group_call.mute_stream(Config.CHAT)
+        await group_call.mute(Config.CHAT)
         return True
-    except GroupCallNotFound:
+    except NoActiveGroupCall:
         await restart_playout()
         return False
     except Exception as e:
@@ -1435,9 +1380,9 @@ async def mute():
 
 async def unmute():
     try:
-        await group_call.unmute_stream(Config.CHAT)
+        await group_call.unmute(Config.CHAT)
         return True
-    except GroupCallNotFound:
+    except NoActiveGroupCall:
         await restart_playout()
         return False
     except Exception as e:

@@ -154,33 +154,55 @@ class Config:
     else:
         FPS = 60  # Set default higher FPS
 
+    # Map quality settings to VideoQuality enum values
+    quality_mapping = {
+        'uhd': 'UHD_4K',      # 4K Ultra HD
+        '4k': 'UHD_4K',       # 4K Ultra HD
+        'qhd': 'QHD_2K',      # 2K Quad HD
+        '2k': 'QHD_2K',       # 2K Quad HD
+        'fhd': 'FHD_1080p',   # 1080p Full HD
+        '1080p': 'FHD_1080p', # 1080p Full HD
+        'high': 'FHD_1080p',  # Legacy: high = 1080p
+        'hd': 'HD_720p',      # 720p HD
+        '720p': 'HD_720p',    # 720p HD
+        'medium': 'HD_720p',  # Legacy: medium = 720p
+        'sd': 'SD_480p',      # 480p Standard
+        '480p': 'SD_480p',    # 480p Standard
+        'low': 'SD_480p',     # Legacy: low = 480p
+        '360p': 'SD_360p',    # 360p Low
+    }
+    
     try:
+        # Try to parse as integer (legacy percentage system)
         CUSTOM_QUALITY = int(CUSTOM_QUALITY)
         if CUSTOM_QUALITY > 100:
-            CUSTOM_QUALITY = 100
-            LOGGER.warning("maximum quality allowed is 100, invalid quality specified. Quality set to 100")
-        elif CUSTOM_QUALITY < 10:
-            LOGGER.warning("Minimum Quality allowed is 10., Quality set to 10")
-            CUSTOM_QUALITY = 10
-        if 66.9 < CUSTOM_QUALITY < 100:
-            if not E_BITRATE:
-                BITRATE = 128000  # More Better audio quality use 320000 for high-quality audio (320 kbps)
-        elif 50 < CUSTOM_QUALITY < 66.9:
-            if not E_BITRATE:
-                BITRATE = 96000  # Adjust for medium quality
+            CUSTOM_QUALITY = 'FHD_1080p'  # Default to 1080p
+            LOGGER.warning("Maximum quality allowed is 100, defaulting to FHD (1080p)")
+        elif CUSTOM_QUALITY >= 90:
+            CUSTOM_QUALITY = 'FHD_1080p'  # 1080p Full HD
+        elif CUSTOM_QUALITY >= 70:
+            CUSTOM_QUALITY = 'HD_720p'    # 720p HD
+        elif CUSTOM_QUALITY >= 50:
+            CUSTOM_QUALITY = 'SD_480p'    # 480p Standard
         else:
-            if not E_BITRATE:
-                BITRATE = 64000  # Adjust for lower quality
+            CUSTOM_QUALITY = 'SD_360p'    # 360p Low
     except:
-        if CUSTOM_QUALITY.lower() == 'high':
-            CUSTOM_QUALITY = 100
-        elif CUSTOM_QUALITY.lower() == 'medium':
-            CUSTOM_QUALITY = 66.9
-        elif CUSTOM_QUALITY.lower() == 'low':
-            CUSTOM_QUALITY = 50
+        # Handle string quality values
+        quality_lower = CUSTOM_QUALITY.lower().strip()
+        if quality_lower in quality_mapping:
+            CUSTOM_QUALITY = quality_mapping[quality_lower]
         else:
-            LOGGER.warning("Invalid QUALITY specified. Defaulting to High.")
-            CUSTOM_QUALITY = 100
+            LOGGER.warning(f"Invalid QUALITY '{CUSTOM_QUALITY}' specified. Defaulting to FHD (1080p).")
+            CUSTOM_QUALITY = 'FHD_1080p'
+    
+    # Set audio bitrate based on video quality
+    if not E_BITRATE:
+        if CUSTOM_QUALITY in ['UHD_4K', 'QHD_2K', 'FHD_1080p']:
+            BITRATE = 320000  # High quality audio for high res video
+        elif CUSTOM_QUALITY == 'HD_720p':
+            BITRATE = 192000  # Medium quality audio
+        else:
+            BITRATE = 128000  # Standard quality audio
 
 
     #help strings 
@@ -424,7 +446,7 @@ For more info on channel play , read help from player section.__
 
 15. `DELAY` : __Choose the time limit for commands deletion. 10 sec by default.__
 
-16. `QUALITY` : __Customize the quality of video chat, use one of `high`, `medium`, `low` . __
+16. `QUALITY` : __Customize the quality of video chat, use one of: `4k`/`uhd`, `2k`/`qhd`, `fhd`/`1080p`, `hd`/`720p`, `sd`/`480p`, `360p`. Legacy values `high`, `medium`, `low` still work. __
 
 17. `BITRATE` : __Bitrate of audio (Not recommended to change).__
 

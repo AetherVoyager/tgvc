@@ -1,11 +1,8 @@
 from .logger import LOGGER
-from config import Config
 import os
 import time
 from threading import Thread
 import sys
-if Config.DATABASE_URI:
-    from .database import db
 from pyrogram import (
     Client, 
     filters
@@ -21,16 +18,23 @@ from pyrogram.types import (
 )
 from contextlib import suppress
 
-debug = Client(
-    "Debug",
-    Config.API_ID,
-    Config.API_HASH,
-    bot_token=Config.BOT_TOKEN,
-)
+def get_debug_client():
+    """Get debug client with current config"""
+    from config import Config
+    return Client(
+        "Debug",
+        Config.API_ID,
+        Config.API_HASH,
+        bot_token=Config.BOT_TOKEN,
+    )
+
+debug = None  # Will be initialized when needed
 
 
-@debug.on_message(filters.command(['env', f"env@{Config.BOT_USERNAME}", "config", f"config@{Config.BOT_USERNAME}"]) & filters.private & filters.user(Config.ADMINS))
 async def set_heroku_var(client, message):
+    from config import Config
+    if Config.BOT_USERNAME is None:
+        Config.BOT_USERNAME = "TelecastBot"
     if message.from_user.id not in Config.SUDO:
         return await message.answer(f"/env command can only be used by creator of the bot, ({str(Config.SUDO)})")
     with suppress(MessageIdInvalid, MessageNotModified):

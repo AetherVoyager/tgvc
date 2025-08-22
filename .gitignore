@@ -1,0 +1,38 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Environment files
+.env
+.env.local
+env_config.txt
+
+# Telegram session files
+*.session
+*.session-journal
+VCPlayer.session
+
+# Logs
+*.log
+botlog.txt
+
+# Downloads and media
+downloads/
+pic/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

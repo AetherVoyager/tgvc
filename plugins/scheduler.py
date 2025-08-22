@@ -5,7 +5,13 @@ from datetime import datetime
 from contextlib import suppress
 import pytz
 from config import Config
-from PTN import parse
+try:
+    from PTN import parse
+    PTN_AVAILABLE = True
+except ImportError:
+    PTN_AVAILABLE = False
+    def parse(title):
+        return {"title": title}
 from youtube_search import YoutubeSearch
 from yt_dlp import YoutubeDL
 

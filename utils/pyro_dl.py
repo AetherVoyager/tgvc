@@ -116,7 +116,7 @@ class Downloader():
                     await session.start()
 
                     for _ in range(3):
-                        exported_auth = await self.client.send(
+                        exported_auth = await self.client.invoke(
                             raw.functions.auth.ExportAuthorization(
                                 dc_id=dc_id
                             )
