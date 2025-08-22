@@ -412,7 +412,7 @@ async def join_and_play(link, seek, pic, width, height):
                                 link,
                                 video_parameters=get_video_quality(),
                                 audio_parameters=AudioQuality.HIGH,
-                                additional_ffmpeg_parameters=f'-ss {start} -atend -t {end} -r 30 -vf scale={cwidth}:{cheight}',
+                                ffmpeg_parameters=f'-ss {start} -atend -t {end} -r 30 -vf scale={cwidth}:{cheight}',
                             ),
                         )
                     else:
@@ -430,7 +430,7 @@ async def join_and_play(link, seek, pic, width, height):
                                 link,
                                 video_parameters=get_video_quality(),
                                 audio_parameters=AudioQuality.HIGH,
-                                additional_ffmpeg_parameters=f'-ss {start} -atend -t {end} -r 30 -vf scale={cwidth}:{cheight}',
+                                ffmpeg_parameters=f'-ss {start} -atend -t {end} -r 30 -vf scale={cwidth}:{cheight}',
                             ),
                         )
             else:
@@ -451,7 +451,7 @@ async def join_and_play(link, seek, pic, width, height):
                                 link,
                                 video_parameters=get_video_quality(),
                                 audio_parameters=AudioQuality.HIGH,
-                                additional_ffmpeg_parameters=f'-r 30 -vf scale={cwidth}:{cheight}',
+                                ffmpeg_parameters=f'-r 30 -vf scale={cwidth}:{cheight}',
                             ),
                         )
                     else:
@@ -469,7 +469,7 @@ async def join_and_play(link, seek, pic, width, height):
                                 link,
                                 video_parameters=get_video_quality(),
                                 audio_parameters=AudioQuality.HIGH,
-                                additional_ffmpeg_parameters=f'-r 30 -vf scale={cwidth}:{cheight}',
+                                ffmpeg_parameters=f'-r 30 -vf scale={cwidth}:{cheight}',
                             ),
                         )
             
