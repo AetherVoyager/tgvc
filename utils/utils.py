@@ -548,7 +548,7 @@ async def stream_end_monitor(link, seek):
             if Config.CALL_STATUS and Config.IS_ACTIVE:
                 LOGGER.info("Media finished, ending stream...")
                 try:
-                    await group_call.leave_group_call(int(Config.CHAT))
+                    await group_call.leave_call(int(Config.CHAT))
                     Config.CALL_STATUS = False
                     Config.IS_ACTIVE = False
                     await sync_to_db()
@@ -562,7 +562,7 @@ async def stream_end_monitor(link, seek):
             if Config.CALL_STATUS and Config.IS_ACTIVE:
                 LOGGER.info("Fallback timer expired, ending stream...")
                 try:
-                    await group_call.leave_group_call(int(Config.CHAT))
+                    await group_call.leave_call(int(Config.CHAT))
                     Config.CALL_STATUS = False
                     Config.IS_ACTIVE = False
                     await sync_to_db()
