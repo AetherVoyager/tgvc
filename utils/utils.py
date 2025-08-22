@@ -479,6 +479,9 @@ async def join_and_play(link, seek, pic, width, height):
             if not seek:  # Only monitor non-seeked streams
                 asyncio.create_task(stream_end_monitor(link, seek))
             
+            # Clean up old downloads
+            asyncio.create_task(cleanup_downloads())
+            
             return True
             
         except NoActiveGroupCall:
@@ -531,6 +534,48 @@ async def join_and_play(link, seek, pic, width, height):
     return False
 
 
+async def cleanup_downloads():
+    """Clean up old downloaded files to prevent disk space issues"""
+    try:
+        downloads_dir = "./downloads"
+        if not os.path.exists(downloads_dir):
+            return
+            
+        current_time = time.time()
+        max_age = 3600  # 1 hour in seconds
+        
+        for filename in os.listdir(downloads_dir):
+            file_path = os.path.join(downloads_dir, filename)
+            
+            # Skip if it's a directory
+            if os.path.isdir(file_path):
+                continue
+                
+            # Get file age
+            file_age = current_time - os.path.getmtime(file_path)
+            
+            # Remove files older than 1 hour
+            if file_age > max_age:
+                try:
+                    os.remove(file_path)
+                    LOGGER.info(f"Cleaned up old download: {filename}")
+                except Exception as e:
+                    LOGGER.warning(f"Could not remove old file {filename}: {e}")
+                    
+    except Exception as e:
+                            LOGGER.error(f"Error in cleanup_downloads: {e}", exc_info=True)
+
+
+async def cleanup_specific_file(file_path):
+    """Clean up a specific file after it's been played"""
+    try:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            LOGGER.info(f"Cleaned up played file: {os.path.basename(file_path)}")
+    except Exception as e:
+        LOGGER.warning(f"Could not remove played file {file_path}: {e}")
+
+
 async def stream_end_monitor(link, seek):
     """Monitor stream end and cleanup when media finishes"""
     try:
@@ -556,6 +601,9 @@ async def stream_end_monitor(link, seek):
                     Config.IS_ACTIVE = False
                     await sync_to_db()
                     LOGGER.info("Successfully left group call after media ended")
+                    
+                    # Clean up the specific file that was just played
+                    await cleanup_specific_file(link)
                 except Exception as e:
                     LOGGER.error(f"Error leaving group call: {e}")
         else:
