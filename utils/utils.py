@@ -472,6 +472,10 @@ async def join_and_play(link, seek, pic, width, height):
             
             Config.CALL_STATUS=True
             LOGGER.info("Successfully joined and started playing media")
+            
+            # Start a timer to detect stream end
+            asyncio.create_task(stream_end_monitor(link, seek))
+            
             return True
             
         except NoActiveGroupCall:
@@ -522,6 +526,51 @@ async def join_and_play(link, seek, pic, width, height):
     
     LOGGER.error("Unexpected end of retry loop")
     return False
+
+
+async def stream_end_monitor(link, seek):
+    """Monitor stream end and cleanup when media finishes"""
+    try:
+        if seek:
+            # For seeked media, calculate remaining duration
+            start = seek.get('start', 0)
+            end = seek.get('end', 0)
+            duration = end - start
+        else:
+            # Get media duration
+            duration = await get_duration(link)
+        
+        if duration > 0:
+            LOGGER.info(f"Stream will end in {duration} seconds")
+            await sleep(duration + 2)  # Wait for duration + buffer
+            
+            # Check if we're still in the same call
+            if Config.CALL_STATUS and Config.IS_ACTIVE:
+                LOGGER.info("Media finished, ending stream...")
+                try:
+                    await group_call.leave_group_call(int(Config.CHAT))
+                    Config.CALL_STATUS = False
+                    Config.IS_ACTIVE = False
+                    await sync_to_db()
+                    LOGGER.info("Successfully left group call after media ended")
+                except Exception as e:
+                    LOGGER.error(f"Error leaving group call: {e}")
+        else:
+            LOGGER.warning("Could not determine media duration, using fallback timer")
+            # Fallback: wait 5 minutes then check if still active
+            await sleep(300)
+            if Config.CALL_STATUS and Config.IS_ACTIVE:
+                LOGGER.info("Fallback timer expired, ending stream...")
+                try:
+                    await group_call.leave_group_call(int(Config.CHAT))
+                    Config.CALL_STATUS = False
+                    Config.IS_ACTIVE = False
+                    await sync_to_db()
+                except Exception as e:
+                    LOGGER.error(f"Error leaving group call: {e}")
+                    
+    except Exception as e:
+        LOGGER.error(f"Error in stream end monitor: {e}", exc_info=True)
 
 
 async def change_file(link, seek, pic, width, height):

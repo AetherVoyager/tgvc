@@ -186,17 +186,30 @@ async def handle_raw_updates(client: Client, update: Update, user: dict, chat: d
  
 @group_call.on_update()
 async def handler(client: PyTgCalls, update: Update):
-    # In py-tgcalls 2.2.6, the event system has changed
-    # We'll handle basic updates for now
-    chat_id = getattr(update, 'chat_id', None)
-    if chat_id and chat_id == Config.CHAT:
-        # Basic status tracking - can be enhanced later
-        pass
-
-
-
-# Stream end handling - simplified for py-tgcalls 2.2.6
-# We'll handle this through the main update handler
+    """Handle py-tgcalls updates including stream end detection"""
+    try:
+        chat_id = getattr(update, 'chat_id', None)
+        if chat_id and chat_id == Config.CHAT:
+            # Check if this is a stream end update
+            if hasattr(update, 'status') and update.status == 'ended':
+                LOGGER.info("Stream ended, cleaning up...")
+                Config.CALL_STATUS = False
+                Config.IS_ACTIVE = False
+                await sync_to_db()
+                return
+            
+            # Check if this is a participant update (user left)
+            if hasattr(update, 'participants'):
+                # If no participants left, end the call
+                if not update.participants:
+                    LOGGER.info("No participants left, ending call...")
+                    Config.CALL_STATUS = False
+                    Config.IS_ACTIVE = False
+                    await sync_to_db()
+                    return
+                    
+    except Exception as e:
+        LOGGER.error(f"Error in update handler: {e}", exc_info=True)
 
        
 
