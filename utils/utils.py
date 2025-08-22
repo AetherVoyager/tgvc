@@ -391,89 +391,89 @@ async def join_and_play(link, seek, pic, width, height):
     while retry_count < max_retries:
         try:
             LOGGER.info(f"Attempting to join call (attempt {retry_count + 1}/{max_retries})")
-        if seek:
-            start=str(seek['start'])
-            end=str(seek['end'])
-            if not Config.IS_VIDEO:
-                await group_call.play(
-                    int(Config.CHAT),
-                    MediaStream(
-                        link,
-                        audio_parameters=AudioQuality.HIGH,
-                        additional_ffmpeg_parameters=f'-ss {start} -atend -t {end}',
-                    ),
-                )
-            else:
-                if pic:
-                    cwidth, cheight = resize_ratio(1280, 720, Config.CUSTOM_QUALITY)
+            
+            if seek:
+                start=str(seek['start'])
+                end=str(seek['end'])
+                if not Config.IS_VIDEO:
                     await group_call.play(
                         int(Config.CHAT),
                         MediaStream(
                             link,
-                            video_parameters=get_video_quality(),
-                            additional_ffmpeg_parameters=f'-ss {start} -atend -t {end}',
-                        ),
-                    )
-                else:
-                    if not width \
-                        or not height:
-                        LOGGER.error("No Valid Video Found and hence removed from playlist.")
-                        if Config.playlist or Config.STREAM_LINK:
-                            return await skip()     
-                        else:
-                            LOGGER.error("This stream is not supported , leaving VC.")
-                            return 
-                    cwidth, cheight = resize_ratio(width, height, Config.CUSTOM_QUALITY)
-                    await group_call.play(
-                        int(Config.CHAT),
-                        MediaStream(
-                            link,
-                            video_parameters=get_video_quality(),
                             audio_parameters=AudioQuality.HIGH,
                             additional_ffmpeg_parameters=f'-ss {start} -atend -t {end}',
                         ),
                     )
-        else:
-            if not Config.IS_VIDEO:
-                await group_call.play(
-                    int(Config.CHAT),
-                    MediaStream(
-                        link,
-                        audio_parameters=AudioQuality.HIGH,
-                    ),
-                )
+                else:
+                    if pic:
+                        cwidth, cheight = resize_ratio(1280, 720, Config.CUSTOM_QUALITY)
+                        await group_call.play(
+                            int(Config.CHAT),
+                            MediaStream(
+                                link,
+                                video_parameters=get_video_quality(),
+                                additional_ffmpeg_parameters=f'-ss {start} -atend -t {end}',
+                            ),
+                        )
+                    else:
+                        if not width or not height:
+                            LOGGER.error("No Valid Video Found and hence removed from playlist.")
+                            if Config.playlist or Config.STREAM_LINK:
+                                return await skip()     
+                            else:
+                                LOGGER.error("This stream is not supported , leaving VC.")
+                                return 
+                        cwidth, cheight = resize_ratio(width, height, Config.CUSTOM_QUALITY)
+                        await group_call.play(
+                            int(Config.CHAT),
+                            MediaStream(
+                                link,
+                                video_parameters=get_video_quality(),
+                                audio_parameters=AudioQuality.HIGH,
+                                additional_ffmpeg_parameters=f'-ss {start} -atend -t {end}',
+                            ),
+                        )
             else:
-                if pic:
-                    cwidth, cheight = resize_ratio(1280, 720, Config.CUSTOM_QUALITY)
+                if not Config.IS_VIDEO:
                     await group_call.play(
                         int(Config.CHAT),
                         MediaStream(
                             link,
-                            video_parameters=get_video_quality(),
                             audio_parameters=AudioQuality.HIGH,
                         ),
                     )
                 else:
-                    if not width \
-                        or not height:
-                        LOGGER.error("No Valid Video Found and hence removed from playlist.")
-                        if Config.playlist or Config.STREAM_LINK:
-                            return await skip()     
-                        else:
-                            LOGGER.error("This stream is not supported , leaving VC.")
-                            return 
-                    cwidth, cheight = resize_ratio(width, height, Config.CUSTOM_QUALITY)
-                    await group_call.play(
-                        int(Config.CHAT),
-                        MediaStream(
-                            link,
-                            video_parameters=get_video_quality(),
-                            audio_parameters=AudioQuality.HIGH,
-                        ),
-                    )
-        Config.CALL_STATUS=True
-        LOGGER.info("Successfully joined and started playing media")
-        return True
+                    if pic:
+                        cwidth, cheight = resize_ratio(1280, 720, Config.CUSTOM_QUALITY)
+                        await group_call.play(
+                            int(Config.CHAT),
+                            MediaStream(
+                                link,
+                                video_parameters=get_video_quality(),
+                                audio_parameters=AudioQuality.HIGH,
+                            ),
+                        )
+                    else:
+                        if not width or not height:
+                            LOGGER.error("No Valid Video Found and hence removed from playlist.")
+                            if Config.playlist or Config.STREAM_LINK:
+                                return await skip()     
+                            else:
+                                LOGGER.error("This stream is not supported , leaving VC.")
+                                return 
+                        cwidth, cheight = resize_ratio(width, height, Config.CUSTOM_QUALITY)
+                        await group_call.play(
+                            int(Config.CHAT),
+                            MediaStream(
+                                link,
+                                video_parameters=get_video_quality(),
+                                audio_parameters=AudioQuality.HIGH,
+                            ),
+                        )
+            
+            Config.CALL_STATUS=True
+            LOGGER.info("Successfully joined and started playing media")
+            return True
     except NoActiveGroupCall:
         try:
             LOGGER.info("No active calls found, creating new")
