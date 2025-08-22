@@ -1806,6 +1806,12 @@ def get_pause(status):
 
 #https://github.com/pytgcalls/pytgcalls/blob/dev/pytgcalls/types/input_stream/video_tools.py#L27-L38
 def resize_ratio(w, h, factor):
+    # Ensure factor is an integer
+    try:
+        factor = int(factor)
+    except (ValueError, TypeError):
+        factor = 100  # Default to 100 if conversion fails
+    
     if w > h:
         rescaling = ((1280 if w > 1280 else w) * 100) / w
     else:
@@ -1859,7 +1865,10 @@ async def edit_config(var, value):
     elif var == "RECORDING_DUMP":
         Config.RECORDING_DUMP = value
     elif var == "QUALITY":
-        Config.CUSTOM_QUALITY = value
+        try:
+            Config.CUSTOM_QUALITY = int(value)
+        except (ValueError, TypeError):
+            Config.CUSTOM_QUALITY = 100  # Default to 100 if conversion fails
     await sync_to_db()
 
 
