@@ -1670,55 +1670,101 @@ async def check_changes():
     
     
 async def is_audio(file):
-    have_audio=False
-    ffprobe_cmd = ["ffprobe", "-i", file, "-v", "quiet", "-of", "json", "-show_streams"]
-    process = await asyncio.create_subprocess_exec(
-            *ffprobe_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-    output = await process.communicate()
-    stream = output[0].decode('utf-8')
-    out = json.loads(stream)
-    l = out.get("streams")
-    if not l:
+    try:
+        LOGGER.info(f"Checking audio in file: {file}")
+        have_audio = False
+        ffprobe_cmd = ["ffprobe", "-i", file, "-v", "quiet", "-of", "json", "-show_streams"]
+        process = await asyncio.create_subprocess_exec(
+                *ffprobe_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+        output, err = await process.communicate()
+        
+        if err:
+            LOGGER.warning(f"FFprobe audio check stderr: {err.decode()}")
+        
+        if not output:
+            LOGGER.error("FFprobe audio check returned no output")
+            return False
+            
+        stream = output[0].decode('utf-8')
+        LOGGER.info(f"FFprobe audio output: {stream}")
+        
+        try:
+            out = json.loads(stream)
+        except json.JSONDecodeError as e:
+            LOGGER.error(f"Failed to parse FFprobe audio JSON: {e}")
+            return False
+            
+        l = out.get("streams")
+        if not l:
+            LOGGER.warning("No streams found in audio check")
+            return have_audio
+            
+        for n in l:
+            k = n.get("codec_type")
+            if k:
+                if k == "audio":
+                    have_audio = True
+                    LOGGER.info("Audio stream detected")
+                    break
+                    
+        LOGGER.info(f"Audio detection result: {have_audio}")
         return have_audio
-    for n in l:
-        k = n.get("codec_type")
-        if k:
-            if k == "audio":
-                have_audio =True
-                break
-    return have_audio
+        
+    except Exception as e:
+        LOGGER.error(f"Error in is_audio: {e}", exc_info=True)
+        return False
     
 
 async def get_height_and_width(file):
-    ffprobe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries", "stream=width,height", "-of", "json", file]
-    process = await asyncio.create_subprocess_exec(
-        *ffprobe_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
-    output, err = await process.communicate()
-    stream = output.decode('utf-8')
     try:
-        out = json.loads(stream)
-    except:
-        out = {}
-    try:
-        n = out.get("streams")
-        if not n:
-            LOGGER.error(err.decode())
-            if os.path.isfile(file):#if ts a file, its a tg file
-                LOGGER.info("Play from DC6 Failed, Downloading the file")
-                total=int((((Config.playlist[0][5]).split("_"))[1]))
-                while not (os.stat(file).st_size) >= total:
-                    LOGGER.info(f"Downloading {Config.playlist[0][1]} - Completed - {round(((int(os.stat(file).st_size)) / int(total))*100)} %" )
-                    await sleep(5)
-                return await get_height_and_width(file)
+        LOGGER.info(f"Analyzing media file: {file}")
+        ffprobe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries", "stream=width,height", "-of", "json", file]
+        process = await asyncio.create_subprocess_exec(
+            *ffprobe_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        output, err = await process.communicate()
+        
+        if err:
+            LOGGER.warning(f"FFprobe stderr: {err.decode()}")
+        
+        if not output:
+            LOGGER.error("FFprobe returned no output")
+            return False, False
+            
+        stream = output.decode('utf-8')
+        LOGGER.info(f"FFprobe output: {stream}")
+        
+        try:
+            out = json.loads(stream)
+        except json.JSONDecodeError as e:
+            LOGGER.error(f"Failed to parse FFprobe JSON: {e}")
+            out = {}
+            
+        try:
+            n = out.get("streams")
+            if not n:
+                LOGGER.error(f"No video streams found in {file}")
+                LOGGER.error(f"FFprobe error: {err.decode() if err else 'None'}")
+                if os.path.isfile(file):#if ts a file, its a tg file
+                    LOGGER.info("Play from DC6 Failed, Downloading the file")
+                    total=int((((Config.playlist[0][5]).split("_"))[1]))
+                    while not (os.stat(file).st_size) >= total:
+                        LOGGER.info(f"Downloading {Config.playlist[0][1]} - Completed - {round(((int(os.stat(file).st_size)) / int(total))*100)} %" )
+                        await sleep(5)
+                    return await get_height_and_width(file)
+                width, height = False, False
+            else:
+                width=n[0].get("width")
+                height=n[0].get("height")
+                LOGGER.info(f"Detected video dimensions: {width}x{height}")
+        except Exception as e:
             width, height = False, False
-        else:
-            width=n[0].get("width")
-            height=n[0].get("height")
+            LOGGER.error(f"Unable to get video properties {e}", exc_info=True)
     except Exception as e:
+        LOGGER.error(f"Error in get_height_and_width: {e}", exc_info=True)
         width, height = False, False
-        LOGGER.error(f"Unable to get video properties {e}", exc_info=True)
+    
     return width, height
 
 
