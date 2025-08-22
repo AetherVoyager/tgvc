@@ -296,8 +296,9 @@ async def skip():
 
 
 async def check_vc():
-    a = await bot.invoke(GetFullChannel(channel=(await bot.resolve_peer(Config.CHAT))))
-    if a.full_chat.call is None:
+    try:
+        a = await bot.invoke(GetFullChannel(channel=(await bot.resolve_peer(Config.CHAT))))
+        if a.full_chat.call is None:
         try:
             LOGGER.info("No active calls found, creating new")
             await USER.invoke(CreateGroupCall(
@@ -316,6 +317,10 @@ async def check_vc():
         if Config.HAS_SCHEDULE:
             await start_scheduled()
         return True
+    except Exception as e:
+        LOGGER.error(f"Error checking voice chat: {e}")
+        LOGGER.error(f"Make sure bot is member of group {Config.CHAT} and has proper permissions")
+        return False
     
 
 async def join_call(link, seek, pic, width, height):  
