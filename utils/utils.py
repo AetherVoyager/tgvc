@@ -299,24 +299,24 @@ async def check_vc():
     try:
         a = await bot.invoke(GetFullChannel(channel=(await bot.resolve_peer(Config.CHAT))))
         if a.full_chat.call is None:
-        try:
-            LOGGER.info("No active calls found, creating new")
-            await USER.invoke(CreateGroupCall(
-                peer=(await USER.resolve_peer(Config.CHAT)),
-                random_id=random.randint(10000, 999999999)
-                )
-                )
-            if Config.WAS_RECORDING:
-                await start_record_stream()
-            await sleep(2)
+            try:
+                LOGGER.info("No active calls found, creating new")
+                await USER.invoke(CreateGroupCall(
+                    peer=(await USER.resolve_peer(Config.CHAT)),
+                    random_id=random.randint(10000, 999999999)
+                    )
+                    )
+                if Config.WAS_RECORDING:
+                    await start_record_stream()
+                await sleep(2)
+                return True
+            except Exception as e:
+                LOGGER.error(f"Unable to start new GroupCall :- {e}", exc_info=True)
+                return False
+        else:
+            if Config.HAS_SCHEDULE:
+                await start_scheduled()
             return True
-        except Exception as e:
-            LOGGER.error(f"Unable to start new GroupCall :- {e}", exc_info=True)
-            return False
-    else:
-        if Config.HAS_SCHEDULE:
-            await start_scheduled()
-        return True
     except Exception as e:
         LOGGER.error(f"Error checking voice chat: {e}")
         LOGGER.error(f"Make sure bot is member of group {Config.CHAT} and has proper permissions")
