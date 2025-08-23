@@ -143,8 +143,19 @@ def get_song_and_artist(spotify_url):
     artist_name = ", ".join(artist["name"] for artist in track_info.get("artists", []))
     return song_name, artist_name
 
-async def play():
-    song=Config.playlist[0]    
+async def play(file_index=0):
+    """Play a specific file from the playlist by index, or the first file if no index specified"""
+    if not Config.playlist:
+        LOGGER.error("No playlist available")
+        return False
+        
+    # Ensure file_index is within bounds
+    if file_index >= len(Config.playlist):
+        LOGGER.warning(f"File index {file_index} out of range, using first file")
+        file_index = 0
+    
+    song=Config.playlist[file_index]
+    LOGGER.info(f"Playing file at index {file_index}: {song[1]}")    
     if song[3] == "telegram":
         file=Config.GET_FILE.get(song[5])
         if not file:
@@ -696,6 +707,53 @@ def estimate_download_time(file_size_bytes):
     
     estimated_seconds = file_size_mb / speed_mbps
     return format_time(int(estimated_seconds))
+
+
+def find_file_in_playlist(file_name_or_id):
+    """Find a file in the playlist by name or ID and return its index"""
+    if not Config.playlist:
+        return -1
+        
+    for i, song in enumerate(Config.playlist):
+        # Check if the song name matches (case insensitive)
+        if file_name_or_id.lower() in song[1].lower():
+            return i
+        # Check if the song ID matches
+        if str(file_name_or_id) == str(song[5]):
+            return i
+        # Check if the song link matches
+        if str(file_name_or_id) == str(song[2]):
+            return i
+    
+    return -1  # File not found
+
+
+async def play_specific_file(file_identifier):
+    """Play a specific file from the playlist by name, ID, or link"""
+    file_index = find_file_in_playlist(file_identifier)
+    
+    if file_index == -1:
+        LOGGER.error(f"File '{file_identifier}' not found in playlist")
+        return False
+    
+    LOGGER.info(f"Found file '{file_identifier}' at index {file_index}, playing now...")
+    return await play(file_index)
+
+
+def get_playlist_info():
+    """Get information about all files in the playlist"""
+    if not Config.playlist:
+        return "No files in playlist"
+    
+    playlist_info = []
+    for i, song in enumerate(Config.playlist):
+        file_name = song[1] if len(song) > 1 else "Unknown"
+        file_id = song[5] if len(song) > 5 else "Unknown"
+        file_type = song[3] if len(song) > 3 else "Unknown"
+        
+        playlist_info.append(f"{i+1}. {file_name} (ID: {file_id}, Type: {file_type})")
+    
+    return "\n".join(playlist_info)
 
 
 async def show_download_progress(file_path, total_size):
