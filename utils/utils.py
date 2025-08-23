@@ -598,13 +598,38 @@ def create_progress_bar(percentage, width=30):
     return f"[{bar}] {percentage:.1f}%"
 
 
+def estimate_download_time(file_size_bytes):
+    """Estimate download time based on file size and typical speeds"""
+    file_size_mb = file_size_bytes / (1024 * 1024)
+    
+    # Typical download speeds (conservative estimates)
+    if file_size_mb < 100:
+        speed_mbps = 2.0  # 2 MB/s for small files
+    elif file_size_mb < 1000:
+        speed_mbps = 1.5  # 1.5 MB/s for medium files
+    else:
+        speed_mbps = 1.0  # 1 MB/s for large files
+    
+    estimated_seconds = file_size_mb / speed_mbps
+    return format_time(int(estimated_seconds))
+
+
 async def show_download_progress(file_path, total_size):
     """Show download progress for media files"""
     try:
         start_time = time.time()
         last_log_time = start_time
         last_size = 0
-        timeout = 3600  # 1 hour timeout for large files
+        timeout = 7200  # 2 hours timeout for large files
+        
+        # For very large files, use even less frequent updates
+        is_very_large = total_size > 2 * 1024 * 1024 * 1024  # > 2GB
+        update_interval = 30 if is_very_large else 15  # 30s for >2GB, 15s for >1GB
+        
+        # Estimate download time based on file size
+        estimated_time = estimate_download_time(total_size)
+        
+        LOGGER.info(f"Starting download progress tracking for {os.path.basename(file_path)} | Size: {total_size/1024/1024:.1f} MB | Update interval: {update_interval}s | Estimated time: {estimated_time}")
         
         while True:
             # Check timeout
@@ -616,34 +641,45 @@ async def show_download_progress(file_path, total_size):
                 current_size = os.path.getsize(file_path)
                 percentage = (current_size / total_size) * 100 if total_size > 0 else 0
                 
-                # Only log every 10 seconds to avoid spam
+                # Only log at specified intervals
                 current_time = time.time()
-                if current_time - last_log_time >= 10:
+                if current_time - last_log_time >= update_interval:
                     # Calculate download speed and ETA
                     if last_size > 0:
-                        speed = (current_size - last_size) / 10  # Speed per second
+                        time_diff = current_time - last_log_time
+                        speed = (current_size - last_size) / time_diff  # Speed per second
                         remaining = total_size - current_size
                         eta = remaining / speed if speed > 0 else 0
                         
+                        # Format speed appropriately
+                        if speed > 1024 * 1024:  # > 1MB/s
+                            speed_str = f"{speed/1024/1024:.2f} MB/s"
+                        else:
+                            speed_str = f"{speed/1024:.1f} KB/s"
+                        
                         progress_bar = create_progress_bar(percentage)
-                        LOGGER.info(f"Download Progress: {progress_bar} | Speed: {speed/1024/1024:.2f} MB/s | ETA: {format_time(eta)} | Size: {current_size/1024/1024:.1f} MB / {total_size/1024/1024:.1f} MB")
+                        LOGGER.info(f"Download Progress: {progress_bar} | Speed: {speed_str} | ETA: {format_time(eta)} | Size: {current_size/1024/1024:.1f} MB / {total_size/1024/1024:.1f} MB")
+                        
+                        # Warn about slow downloads
+                        if speed < 50 * 1024:  # < 50 KB/s
+                            LOGGER.warning(f"Download speed is very slow ({speed_str}). This may take a long time.")
+                        elif speed < 500 * 1024:  # < 500 KB/s
+                            LOGGER.warning(f"Download speed is slow ({speed_str}). Consider checking your connection.")
                     else:
-                        LOGGER.info(f"Download started: {os.path.basename(file_path)} | Total size: {total_size/1024/1024:.1f} MB")
+                        LOGGER.info(f"Download in progress: {os.path.basename(file_path)} | Current: {current_size/1024/1024:.1f} MB / {total_size/1024/1024:.1f} MB")
                     
                     last_log_time = current_time
                     last_size = current_size
                 
                 if percentage >= 100:
-                    LOGGER.info("Download completed!")
+                    total_time = time.time() - start_time
+                    LOGGER.info(f"Download completed in {format_time(total_time)}!")
                     break
                     
-                # For large files, check less frequently
-                if total_size > 1024 * 1024 * 1024:  # > 1GB
-                    await sleep(15)  # Check every 15 seconds
-                else:
-                    await sleep(5)   # Check every 5 seconds
+                # Sleep based on file size
+                await sleep(update_interval)
             else:
-                await sleep(2)
+                await sleep(5)
                 
     except Exception as e:
         LOGGER.error(f"Error in progress tracking: {e}")
