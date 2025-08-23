@@ -143,8 +143,37 @@ def get_song_and_artist(spotify_url):
     artist_name = ", ".join(artist["name"] for artist in track_info.get("artists", []))
     return song_name, artist_name
 
+async def play_direct_file(file_path, title="Unknown"):
+    """Play a file directly without playlist management"""
+    try:
+        LOGGER.info(f"Playing file directly: {title}")
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            LOGGER.error(f"File not found: {file_path}")
+            return False
+            
+        # Get media info
+        link, seek, pic, width, height = await chek_the_media(file_path, title=title)
+        if not link:
+            LOGGER.warning("Unsupported file format")
+            return False
+            
+        # Join call and play
+        await sleep(1)
+        if Config.STREAM_LINK:
+            Config.STREAM_LINK = False
+            
+        LOGGER.info(f"STARTING PLAYING: {title}")
+        await join_call(link, seek, pic, width, height)
+        return True
+        
+    except Exception as e:
+        LOGGER.error(f"Error playing file: {e}", exc_info=True)
+        return False
+
 async def play(file_index=0):
-    """Play a specific file from the playlist by index, or the first file if no index specified"""
+    """Legacy function - now redirects to direct file playing"""
     if not Config.playlist:
         LOGGER.error("No playlist available")
         return False
@@ -154,10 +183,11 @@ async def play(file_index=0):
         LOGGER.warning(f"File index {file_index} out of range, using first file")
         file_index = 0
     
-    song=Config.playlist[file_index]
+    song = Config.playlist[file_index]
     LOGGER.info(f"Playing file at index {file_index}: {song[1]}")    
+    
     if song[3] == "telegram":
-        file=Config.GET_FILE.get(song[5])
+        file = Config.GET_FILE.get(song[5])
         if not file:
             file = await dl.pyro_dl(song[2])
             if not file:
@@ -166,17 +196,18 @@ async def play(file_index=0):
             Config.GET_FILE[song[5]] = file
             await sleep(3)
         while not os.path.exists(file):
-            file=Config.GET_FILE.get(song[5])
+            file = Config.GET_FILE.get(song[5])
             await sleep(1)
-        total=int(((song[5].split("_"))[1])) * 0.005
+        total = int(((song[5].split("_"))[1])) * 0.005
         while not (os.stat(file).st_size) >= total:
             LOGGER.info("Waiting for download")
             LOGGER.info(str((os.stat(file).st_size)))
             await sleep(1)
     elif song[3] == "url":
-        file=song[2]
+        file = song[2]
     else:
-        file=await get_link(song[2])
+        file = await get_link(song[2])
+        
     if not file:
         if Config.playlist or Config.STREAM_LINK:
             return await skip()     
@@ -184,15 +215,9 @@ async def play(file_index=0):
             LOGGER.error("This stream is not supported , leaving VC.")
             await leave_call()
             return False 
-    link, seek, pic, width, height = await chek_the_media(file, title=f"{song[1]}")
-    if not link:
-        LOGGER.warning("Unsupported link, Skiping from queue.")
-        return
-    await sleep(1)
-    if Config.STREAM_LINK:
-        Config.STREAM_LINK=False
-    LOGGER.info(f"STARTING PLAYING: {song[1]}")
-    await join_call(link, seek, pic, width, height)
+            
+    # Use the new direct play function
+    return await play_direct_file(file, song[1])
 
 async def schedule_a_play(job_id, date):
     try:

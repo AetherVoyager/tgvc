@@ -6,6 +6,7 @@ from yt_dlp import YoutubeDL
 from datetime import datetime
 from pyrogram import filters, enums
 from config import Config
+import asyncio
 try:
     from PTN import parse
     PTN_AVAILABLE = True
@@ -19,8 +20,8 @@ from utils import (
     clear_db_playlist, 
     delete_messages, 
     download, 
-    get_admins, 
     get_duration,
+    get_admins, 
     is_admin, 
     get_buttons, 
     get_link, 
@@ -28,6 +29,11 @@ from utils import (
     is_audio, 
     leave_call, 
     play, 
+    play_direct_file,
+    chek_the_media,
+    join_call,
+    sleep,
+    bot,
     get_playlist_str, 
     send_playlist, 
     shuffle_playlist, 
@@ -57,8 +63,10 @@ from pyrogram import (
 admin_filter = filters.create(is_admin) 
 
 @Client.on_message(filters.command(["play", "fplay", f"play@{Config.BOT_USERNAME}", f"fplay@{Config.BOT_USERNAME}"]))
-async def add_to_playlist(client, message):
+async def play_file_directly(client, message):
+    """Play files directly without playlist management"""
     print(f"Command received from {message.from_user.id} in chat type: {message.chat.type}")
+    
     with suppress(MessageIdInvalid, MessageNotModified):
         # Fetch the list of admins for the current chat
         admins = await get_admins(message.chat.id)
@@ -70,146 +78,117 @@ async def add_to_playlist(client, message):
                 # User is not authorized to use the command
                 await message.reply("<b>Sorry! You are not authorized ❌</b>", quote=False)
                 return
-        type=""
-        yturl=""
-        ysearch=""
-        url=""
+                
         if message.command[0] == "fplay":
             if not (message.from_user is None and message.sender_chat or message.from_user.id in admins):
                 k = await message.reply("This command is only for admins.", quote=False)
                 await delete_messages([message, k])
                 return
+                
         msg = await message.reply_text("⚡️ **Checking received input..**", quote=False)
+        
+        # Handle Telegram media files
         if message.reply_to_message and message.reply_to_message.video:
-            await msg.edit("⚡️ **Checking Telegram Media...**")
-            type='video'
-            m_video = message.reply_to_message.video       
+            await msg.edit("⚡️ **Processing Telegram Video...**")
+            m_video = message.reply_to_message.video
+            title = m_video.file_name or "Video"
+            file_id = m_video.file_id
+            unique = f"{datetime.now().strftime('%d-%m-%Y-%H:%M:%S')}_{m_video.file_size}_video"
+            
         elif message.reply_to_message and message.reply_to_message.document:
-            await msg.edit("⚡️ **Checking Telegram Media...**")
+            await msg.edit("⚡️ **Processing Telegram Document...**")
             m_video = message.reply_to_message.document
-            type='video'
             if not "video" in m_video.mime_type:
-                return await msg.edit("The given file is invalid")
+                await msg.edit("The given file is invalid")
+                await delete_messages([message, msg])
+                return
+            title = m_video.file_name or "Document"
+            file_id = m_video.file_id
+            unique = f"{datetime.now().strftime('%d-%m-%Y-%H:%M:%S')}_{m_video.file_size}_document"
+            
         elif message.reply_to_message and message.reply_to_message.audio:
-            await msg.edit("⚡️ **Checking Telegram Media...**")
-            type='audio'
-            m_video = message.reply_to_message.audio       
-        else:
-            if message.reply_to_message and message.reply_to_message.text:
-                query = message.reply_to_message.text
-            elif " " in message.text:
-                text = message.text.split(" ", 1)
-                query = text[1]
+            await msg.edit("⚡️ **Processing Telegram Audio...**")
+            m_video = message.reply_to_message.audio
+            if m_video.title:
+                title = m_video.title
+                if m_video.performer:
+                    title = f"{m_video.performer} - {title}"
             else:
-                await msg.edit("<b>❌You didn't give me anything to play.</b>")
+                title = m_video.file_name or "Audio"
+            file_id = m_video.file_id
+            unique = f"{datetime.now().strftime('%d-%m-%Y-%H:%M:%S')}_{m_video.file_size}_audio"
+            
+        # Handle YouTube links and search queries
+        elif message.reply_to_message and message.reply_to_message.text:
+            query = message.reply_to_message.text
+            await handle_youtube_or_search(query, msg, message)
+            return
+            
+        elif " " in message.text:
+            text = message.text.split(" ", 1)
+            query = text[1]
+            await handle_youtube_or_search(query, msg, message)
+            return
+            
+        else:
+            await msg.edit("<b>❌You didn't give me anything to play.</b>")
+            await delete_messages([message, msg])
+            return
+
+        # Process Telegram media file
+        try:
+            # Download the file
+            await msg.edit("⚡️ **Downloading and Processing...**")
+            
+            # Get file path
+            file_path = await bot.download_media(file_id)
+            if not file_path:
+                await msg.edit("❌ Failed to download file")
+                await delete_messages([message, msg])
+                return
+                
+            # Store file reference for cleanup
+            Config.GET_FILE[unique] = file_path
+            
+            # Play the file directly
+            success = await play_direct_file(file_path, title)
+            
+            if success:
+                await msg.edit(f"✅ **Now playing: {title}**")
+                # Clean up message after a delay
+                await asyncio.sleep(3)
+                await msg.delete()
+            else:
+                await msg.edit("❌ **Failed to play file**")
+                await delete_messages([message, msg])
+                
+        except Exception as e:
+            LOGGER.error(f"Error processing file: {e}", exc_info=True)
+            await msg.edit(f"❌ **Error: {str(e)}**")
+            await delete_messages([message, msg])
+
+
+async def handle_youtube_or_search(query, msg, message):
+    """Handle YouTube links and search queries"""
+    try:
+        # Spotify Track Handling
+        if "spotify.com/track" in query:
+            try:
+                song_name, artist_name = get_song_and_artist(query)
+                query = f"{song_name} {artist_name}"
+            except Exception as e:
+                await msg.edit(f"<b>❌Set valid Spotify API credentials in the config to play tracks</b>")
                 await delete_messages([message, msg])
                 return
 
-            # Spotify Track Handling
-            if "spotify.com/track" in query:
-                try:
-                    song_name, artist_name = get_song_and_artist(query)
-                    query = f"{song_name} {artist_name}"
-                except Exception as e:
-                    await msg.edit(f"<b>❌Set valid Spotify API credentials in the config to play tracks</b>")
-                    return
-
-            regex = r"^(?:https?:\/\/)?(?:www\.)?youtu\.?be(?:\.com)?\/?.*(?:watch|embed)?(?:.*v=|v\/|\/)([\w\-_]+)\&?"
-            match = re.match(regex, query)
-            if match:
-                type="youtube"
-                yturl=query
-            elif query.startswith("http"):
-                try:
-                    has_audio_ = await is_audio(query)
-                except:
-                    has_audio_ = False
-                    LOGGER.error("Unable to get Audio properties within time.")
-                if has_audio_:
-                    try:
-                        dur = await get_duration(query)
-                    except:
-                        dur = 0
-                    if dur == 0:
-                        await msg.edit("<b>❌This is a live stream, use /stream command.</b>")
-                        await delete_messages([message, msg])
-                        return 
-                    type="direct"
-                    url=query
-                else:
-                    if is_ytdl_supported(query):
-                        type="ytdl_s"
-                        url=query
-                    else:
-                        await msg.edit("<b>Invalid link ❌</b>")
-                        await delete_messages([message, msg])
-                        return
-            else:
-                type="query"
-                ysearch=query
-        if not message.from_user is None:
-            user = f"[{message.from_user.first_name}](tg://user?id={message.from_user.id})"
-            user_id = message.from_user.id
-        else:
-            user = "Anonymous 👻"
-            user_id = "anonymous_admin"
-        now = datetime.now()
-        nyav = now.strftime("%d-%m-%Y-%H:%M:%S")
-        if type in ["video", "audio"]:
-            if type == "audio":
-                if m_video.title is None:
-                    if m_video.file_name is None:
-                        title_ = "Music"
-                    else:
-                        title_ = m_video.file_name
-                else:
-                    title_ = m_video.title
-                if m_video.performer is not None:
-                    title = f"{m_video.performer} - {title_}"
-                else:
-                    title = title_
-                unique = f"{nyav}_{m_video.file_size}_audio"
-            else:
-                title = m_video.file_name
-                unique = f"{nyav}_{m_video.file_size}_video"
-                if Config.PTN:
-                    ny = parse(title)
-                    title_ = ny.get("title")
-                    if title_:
-                        title = title_
-            file_id = m_video.file_id
-            if title is None:
-                title = 'Music'
-            data = {1:title, 2:file_id, 3:"telegram", 4:user, 5:unique}
-            if message.command[0] == "fplay":
-                pla = [data] + Config.playlist
-                Config.playlist = pla
-            else:
-                Config.playlist.append(data)
-            await add_to_db_playlist(data)        
-            await msg.edit("<b>Media added to playlist ✅</b>")
-        elif type in ["youtube", "query", "ytdl_s"]:
-            if type == "youtube":
-                await msg.edit("⚡️ **Fetching Video From YouTube...**")
-                url = yturl
-            elif type == "query":
-                try:
-                    await msg.edit("⚡️ **Fetching Video From YouTube...**")
-                    ytquery = ysearch
-                    results = YoutubeSearch(ytquery, max_results=1).to_dict()
-                    url = f"https://youtube.com{results[0]['url_suffix']}"
-                    title = results[0]["title"][:40]
-                except Exception as e:
-                    await msg.edit(
-                        "<b>Song not found.\nTry inline mode...</b>"
-                    )
-                    LOGGER.error(str(e), exc_info=True)
-                    await delete_messages([message, msg])
-                    return
-            elif type == "ytdl_s":
-                url = url
-            else:
-                return
+        # Check if it's a YouTube link
+        regex = r"^(?:https?:\/\/)?(?:www\.)?youtu\.?be(?:\.com)?\/?.*(?:watch|embed)?(?:.*v=|v\/|\/)([\w\-_]+)\&?"
+        match = re.match(regex, query)
+        
+        if match:
+            # YouTube link
+            await msg.edit("⚡️ **Fetching Video From YouTube...**")
+            url = query
             ydl_opts = {
                 "quiet": True,
                 "geo-bypass": True,
@@ -218,70 +197,179 @@ async def add_to_playlist(client, message):
                 "cookiefile": Config.YT_COOKIES_PATH,
             }
             ydl = YoutubeDL(ydl_opts)
+            
             try:
                 info = ydl.extract_info(url, False)
-            except Exception as e:
-                LOGGER.error(e, exc_info=True)
-                await msg.edit(
-                    f"<b>Error ❌ Use cookies-from-browser or cookies for the authentication.</b>"
-                )
-                LOGGER.error(str(e))
-                await delete_messages([message, msg])
-                return
-            if type == "ytdl_s":
-                title = "Music"
-                try:
-                    title = info['title']
-                except:
-                    pass
-            else:
                 title = info["title"]
                 if info['duration'] is None:
                     await msg.edit("<b>❌This is a live stream, use /stream command.</b>")
                     await delete_messages([message, msg])
+                    return
+                    
+                # Download and play YouTube video
+                await msg.edit("⚡️ **Downloading YouTube Video...**")
+                file_path = await download_youtube_video(url, title)
+                if file_path:
+                    success = await play_direct_file(file_path, title)
+                    if success:
+                        await msg.edit(f"✅ **Now playing: {title}**")
+                        await asyncio.sleep(3)
+                        await msg.delete()
+                    else:
+                        await msg.edit("❌ **Failed to play YouTube video**")
+                        await delete_messages([message, msg])
+                else:
+                    await msg.edit("❌ **Failed to download YouTube video**")
+                    await delete_messages([message, msg])
+                    
+            except Exception as e:
+                LOGGER.error(f"YouTube download error: {e}", exc_info=True)
+                await msg.edit(f"❌ **YouTube Error: {str(e)}**")
+                await delete_messages([message, msg])
+                
+        elif query.startswith("http"):
+            # Direct URL
+            try:
+                has_audio_ = await is_audio(query)
+            except:
+                has_audio_ = False
+                LOGGER.error("Unable to get Audio properties within time.")
+                
+            if has_audio_:
+                try:
+                    dur = await get_duration(query)
+                except:
+                    dur = 0
+                if dur == 0:
+                    await msg.edit("<b>❌This is a live stream, use /stream command.</b>")
+                    await delete_messages([message, msg])
                     return 
-            data = {1:title, 2:url, 3:"youtube", 4:user, 5:f"{nyav}_{user_id}"}
-            if message.command[0] == "fplay":
-                pla = [data] + Config.playlist
-                Config.playlist = pla
+                    
+                # Play direct URL
+                await msg.edit("⚡️ **Processing Direct URL...**")
+                success = await play_direct_url(query, "Direct Stream")
+                if success:
+                    await msg.edit("✅ **Now playing direct URL**")
+                    await asyncio.sleep(3)
+                    await msg.delete()
+                else:
+                    await msg.edit("❌ **Failed to play direct URL**")
+                    await delete_messages([message, msg])
             else:
-                Config.playlist.append(data)
-            await add_to_db_playlist(data)
-            await msg.edit(f"<b>[{title}]({url}) added to playlist</b>", disable_web_page_preview=True)
-        elif type == "direct":
-            data = {1:"Music", 2:url, 3:"url", 4:user, 5:f"{nyav}_{user_id}"}
-            if message.command[0] == "fplay":
-                pla = [data] + Config.playlist
-                Config.playlist = pla
-            else:
-                Config.playlist.append(data)
-            await add_to_db_playlist(data)        
-            await msg.edit("<b>Link added to playlist ✅</b>")
-        if not Config.CALL_STATUS and len(Config.playlist) >= 1:
-            await msg.edit("<b>⚡️Downloading and Processing...</b>")
-            await download(Config.playlist[0], msg)
-            await play()
-        elif len(Config.playlist) == 1 and Config.CALL_STATUS:
-            await msg.edit("<b>⚡️Downloading and Processing...</b>")
-            await download(Config.playlist[0], msg)  
-            await play()
-        elif message.command[0] == "fplay":
-            await msg.edit("<b>⚡️Downloading and Processing...</b>")
-            await download(Config.playlist[0], msg)  
-            await play()
+                if is_ytdl_supported(query):
+                    # YTDL supported URL
+                    await msg.edit("⚡️ **Processing YTDL URL...**")
+                    file_path = await download_ytdl_url(query)
+                    if file_path:
+                        success = await play_direct_file(file_path, "YTDL Stream")
+                        if success:
+                            await msg.edit("✅ **Now playing YTDL stream**")
+                            await asyncio.sleep(3)
+                            await msg.delete()
+                        else:
+                            await msg.edit("❌ **Failed to play YTDL stream**")
+                            await delete_messages([message, msg])
+                    else:
+                        await msg.edit("❌ **Failed to download YTDL stream**")
+                        await delete_messages([message, msg])
+                else:
+                    await msg.edit("<b>Invalid link ❌</b>")
+                    await delete_messages([message, msg])
         else:
-            await send_playlist()  
-        await msg.delete()
-        pl = await get_playlist_str()
-        if message.chat.type == enums.ChatType.PRIVATE:
-            await message.reply(pl, reply_markup=await get_buttons(), disable_web_page_preview=True)       
-        elif message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
-            if Config.msg.get('playlist') is not None:
-                await Config.msg['playlist'].delete()
-                Config.msg['playlist'] = await message.reply(pl, disable_web_page_preview=True, reply_markup=await get_buttons())    
-            await delete_messages([message])  
-        for track in Config.playlist[:2]:
-            await download(track)
+            # YouTube search query
+            try:
+                await msg.edit("⚡️ **Searching YouTube...**")
+                results = YoutubeSearch(query, max_results=1).to_dict()
+                url = f"https://youtube.com{results[0]['url_suffix']}"
+                title = results[0]["title"][:40]
+                
+                # Download and play searched video
+                await msg.edit("⚡️ **Downloading Searched Video...**")
+                file_path = await download_youtube_video(url, title)
+                if file_path:
+                    success = await play_direct_file(file_path, title)
+                    if success:
+                        await msg.edit(f"✅ **Now playing: {title}**")
+                        await asyncio.sleep(3)
+                        await msg.delete()
+                    else:
+                        await msg.edit("❌ **Failed to play searched video**")
+                        await delete_messages([message, msg])
+                else:
+                    await msg.edit("❌ **Failed to download searched video**")
+                    await delete_messages([message, msg])
+                    
+            except Exception as e:
+                await msg.edit("<b>Song not found.\nTry inline mode...</b>")
+                LOGGER.error(str(e), exc_info=True)
+                await delete_messages([message, msg])
+                
+    except Exception as e:
+        LOGGER.error(f"Error in handle_youtube_or_search: {e}", exc_info=True)
+        await msg.edit(f"❌ **Error: {str(e)}**")
+        await delete_messages([message, msg])
+
+
+async def download_youtube_video(url, title):
+    """Download YouTube video and return file path"""
+    try:
+        ydl_opts = {
+            "quiet": True,
+            "geo-bypass": True,
+            "nocheckcertificate": True,
+            "no_warnings": True,
+            "cookiefile": Config.YT_COOKIES_PATH,
+            "outtmpl": f"./downloads/%(title)s.%(ext)s"
+        }
+        ydl = YoutubeDL(ydl_opts)
+        info = ydl.extract_info(url, False)
+        file_path = ydl.download([url])
+        return file_path
+    except Exception as e:
+        LOGGER.error(f"YouTube download error: {e}", exc_info=True)
+        return None
+
+
+async def download_ytdl_url(url):
+    """Download YTDL supported URL and return file path"""
+    try:
+        ydl_opts = {
+            "quiet": True,
+            "geo-bypass": True,
+            "nocheckcertificate": True,
+            "no_warnings": True,
+            "outtmpl": f"./downloads/%(title)s.%(ext)s"
+        }
+        ydl = YoutubeDL(ydl_opts)
+        info = ydl.extract_info(url, False)
+        file_path = ydl.download([url])
+        return file_path
+    except Exception as e:
+        LOGGER.error(f"YTDL download error: {e}", exc_info=True)
+        return None
+
+
+async def play_direct_url(url, title):
+    """Play direct URL without downloading"""
+    try:
+        # Get media info
+        link, seek, pic, width, height = await chek_the_media(url, title=title)
+        if not link:
+            LOGGER.warning("Unsupported URL format")
+            return False
+            
+        # Join call and play
+        await sleep(1)
+        if Config.STREAM_LINK:
+            Config.STREAM_LINK = False
+            
+        LOGGER.info(f"STARTING PLAYING: {title}")
+        await join_call(link, seek, pic, width, height)
+        return True
+        
+    except Exception as e:
+        LOGGER.error(f"Error playing direct URL: {e}", exc_info=True)
+        return False
 
 @Client.on_message(filters.command(["leave", f"leave@{Config.BOT_USERNAME}"]) & admin_filter & chat_filter)
 async def leave_voice_chat(_, m: Message):

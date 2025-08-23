@@ -85,10 +85,11 @@ class Config:
 
     SCHEDULE_LIST = []
     playlist = []
+    CURRENT_FILE_INDEX = 0  # Track which file is currently playing
     CONFIG_LIST = ["ADMINS", "IS_VIDEO", "IS_LOOP", "REPLY_PM", "ADMIN_ONLY", "SHUFFLE", "EDIT_TITLE", "CHAT",
                    "SUDO", "REPLY_MESSAGE", "STREAM_URL", "DELAY", "LOG_GROUP", "SCHEDULED_STREAM", "SCHEDULE_LIST",
                    "IS_VIDEO_RECORD", "IS_RECORDING", "WAS_RECORDING", "RECORDING_TITLE", "PORTRAIT", "RECORDING_DUMP", "HAS_SCHEDULE",
-                   "CUSTOM_QUALITY"]
+                   "CUSTOM_QUALITY", "CURRENT_FILE_INDEX"]
 
     STARTUP_ERROR = None
 
