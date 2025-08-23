@@ -482,6 +482,11 @@ async def join_and_play(link, seek, pic, width, height):
             # Clean up old downloads
             asyncio.create_task(cleanup_downloads())
             
+            # Start Telegram download monitoring for the current file
+            if os.path.exists(link):
+                file_size = os.path.getsize(link)
+                asyncio.create_task(monitor_telegram_download(link, file_size))
+            
             return True
             
         except NoActiveGroupCall:
@@ -574,6 +579,85 @@ async def cleanup_specific_file(file_path):
             LOGGER.info(f"Cleaned up played file: {os.path.basename(file_path)}")
     except Exception as e:
         LOGGER.warning(f"Could not remove played file {file_path}: {e}")
+
+
+async def monitor_telegram_download(file_path, expected_size=None):
+    """Monitor Telegram file download progress"""
+    try:
+        if not os.path.exists(file_path):
+            LOGGER.info(f"Waiting for Telegram download to start: {os.path.basename(file_path)}")
+            # Wait for file to appear
+            while not os.path.exists(file_path):
+                await sleep(1)
+        
+        start_time = time.time()
+        last_size = 0
+        last_log_time = start_time
+        update_interval = 5  # Update every 5 seconds for Telegram downloads
+        
+        LOGGER.info(f"Telegram download started: {os.path.basename(file_path)}")
+        
+        while True:
+            if os.path.exists(file_path):
+                current_size = os.path.getsize(file_path)
+                current_time = time.time()
+                
+                # Log progress at intervals
+                if current_time - last_log_time >= update_interval:
+                    if last_size > 0:
+                        # Calculate download speed
+                        time_diff = current_time - last_log_time
+                        speed = (current_size - last_size) / time_diff
+                        
+                        # Format speed
+                        if speed > 1024 * 1024:  # > 1MB/s
+                            speed_str = f"{speed/1024/1024:.2f} MB/s"
+                        else:
+                            speed_str = f"{speed/1024:.1f} KB/s"
+                        
+                        # Calculate progress if expected size is known
+                        if expected_size and expected_size > 0:
+                            percentage = (current_size / expected_size) * 100
+                            progress_bar = create_progress_bar(percentage)
+                            remaining = expected_size - current_size
+                            eta = remaining / speed if speed > 0 else 0
+                            
+                            LOGGER.info(f"Telegram Download: {progress_bar} | Speed: {speed_str} | ETA: {format_time(eta)} | Size: {current_size/1024/1024:.1f} MB / {expected_size/1024/1024:.1f} MB")
+                        else:
+                            LOGGER.info(f"Telegram Download: Speed: {speed_str} | Current: {current_size/1024/1024:.1f} MB")
+                        
+                        # Warn about slow downloads
+                        if speed < 50 * 1024:  # < 50 KB/s
+                            LOGGER.warning(f"Telegram download speed is very slow ({speed_str}). This may take a long time.")
+                        elif speed < 500 * 1024:  # < 500 KB/s
+                            LOGGER.warning(f"Telegram download speed is slow ({speed_str}). Consider checking your connection.")
+                    
+                    last_log_time = current_time
+                    last_size = current_size
+                
+                # Check if download is complete (file size stable for 10 seconds)
+                await sleep(2)
+                if os.path.exists(file_path):
+                    new_size = os.path.getsize(file_path)
+                    if new_size == current_size:
+                        # Wait a bit more to ensure it's really complete
+                        await sleep(5)
+                        final_size = os.path.getsize(file_path)
+                        if final_size == current_size:
+                            total_time = time.time() - start_time
+                            LOGGER.info(f"Telegram download completed in {format_time(total_time)}! Final size: {final_size/1024/1024:.1f} MB")
+                            break
+                
+                # Check for timeout (30 minutes)
+                if time.time() - start_time > 1800:
+                    LOGGER.warning("Telegram download timed out after 30 minutes")
+                    break
+                    
+            else:
+                await sleep(1)
+                
+    except Exception as e:
+        LOGGER.error(f"Error monitoring Telegram download: {e}", exc_info=True)
 
 
 def format_time(seconds):
