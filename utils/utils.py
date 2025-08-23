@@ -601,27 +601,50 @@ def create_progress_bar(percentage, width=30):
 async def show_download_progress(file_path, total_size):
     """Show download progress for media files"""
     try:
+        start_time = time.time()
+        last_log_time = start_time
+        last_size = 0
+        timeout = 3600  # 1 hour timeout for large files
+        
         while True:
+            # Check timeout
+            if time.time() - start_time > timeout:
+                LOGGER.warning(f"Download progress tracking timed out after {format_time(timeout)}")
+                break
+                
             if os.path.exists(file_path):
                 current_size = os.path.getsize(file_path)
                 percentage = (current_size / total_size) * 100 if total_size > 0 else 0
                 
-                # Calculate download speed and ETA
-                if hasattr(show_download_progress, 'last_size'):
-                    speed = current_size - show_download_progress.last_size
-                    remaining = total_size - current_size
-                    eta = remaining / speed if speed > 0 else 0
+                # Only log every 10 seconds to avoid spam
+                current_time = time.time()
+                if current_time - last_log_time >= 10:
+                    # Calculate download speed and ETA
+                    if last_size > 0:
+                        speed = (current_size - last_size) / 10  # Speed per second
+                        remaining = total_size - current_size
+                        eta = remaining / speed if speed > 0 else 0
+                        
+                        progress_bar = create_progress_bar(percentage)
+                        LOGGER.info(f"Download Progress: {progress_bar} | Speed: {speed/1024/1024:.2f} MB/s | ETA: {format_time(eta)} | Size: {current_size/1024/1024:.1f} MB / {total_size/1024/1024:.1f} MB")
+                    else:
+                        LOGGER.info(f"Download started: {os.path.basename(file_path)} | Total size: {total_size/1024/1024:.1f} MB")
                     
-                    progress_bar = create_progress_bar(percentage)
-                    LOGGER.info(f"Download Progress: {progress_bar} | Speed: {speed/1024:.1f} KB/s | ETA: {format_time(eta)}")
-                else:
-                    show_download_progress.last_size = current_size
+                    last_log_time = current_time
+                    last_size = current_size
                 
                 if percentage >= 100:
                     LOGGER.info("Download completed!")
                     break
                     
-            await sleep(1)
+                # For large files, check less frequently
+                if total_size > 1024 * 1024 * 1024:  # > 1GB
+                    await sleep(15)  # Check every 15 seconds
+                else:
+                    await sleep(5)   # Check every 5 seconds
+            else:
+                await sleep(2)
+                
     except Exception as e:
         LOGGER.error(f"Error in progress tracking: {e}")
 
@@ -630,21 +653,45 @@ async def show_processing_progress(file_path, operation="Processing"):
     """Show processing progress for media operations"""
     try:
         start_time = time.time()
-        LOGGER.info(f"{operation} started for: {os.path.basename(file_path)}")
+        file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+        is_large_file = file_size > 100 * 1024 * 1024  # > 100MB
+        
+        LOGGER.info(f"{operation} started for: {os.path.basename(file_path)} | Size: {file_size/1024/1024:.1f} MB")
+        
+        # For large files, use less frequent monitoring
+        check_interval = 30 if is_large_file else 10  # 30s for large files, 10s for small
+        
+        # Add timeout for large files
+        timeout = 7200 if is_large_file else 1800  # 2 hours for large files, 30 minutes for small
         
         # Monitor file changes during processing
         last_size = 0
+        last_log_time = start_time
+        
         while True:
+            # Check timeout
+            if time.time() - start_time > timeout:
+                LOGGER.warning(f"{operation} progress tracking timed out after {format_time(timeout)}")
+                break
             if os.path.exists(file_path):
                 current_size = os.path.getsize(file_path)
                 elapsed = time.time() - start_time
                 
-                if current_size != last_size:
-                    LOGGER.info(f"{operation} in progress... | File size: {current_size/1024/1024:.1f} MB | Elapsed: {format_time(elapsed)}")
-                    last_size = current_size
+                # Only log if size changed or time interval passed
+                current_time = time.time()
+                if current_size != last_size or (current_time - last_log_time) >= check_interval:
+                    if current_size != last_size:
+                        LOGGER.info(f"{operation} in progress... | File size: {current_size/1024/1024:.1f} MB | Elapsed: {format_time(elapsed)}")
+                        last_size = current_size
+                    else:
+                        LOGGER.info(f"{operation} still processing... | Elapsed: {format_time(elapsed)} | File size: {current_size/1024/1024:.1f} MB")
+                    
+                    last_log_time = current_time
                 
-                # Check if processing is complete (file size stable)
-                await sleep(2)
+                # Check if processing is complete (file size stable for longer period on large files)
+                stable_check_time = 60 if is_large_file else 10  # 1 minute for large files, 10s for small
+                await sleep(stable_check_time)
+                
                 if os.path.exists(file_path):
                     new_size = os.path.getsize(file_path)
                     if new_size == current_size:
