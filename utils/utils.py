@@ -576,6 +576,89 @@ async def cleanup_specific_file(file_path):
         LOGGER.warning(f"Could not remove played file {file_path}: {e}")
 
 
+def format_time(seconds):
+    """Format seconds into human readable time"""
+    if seconds < 60:
+        return f"{seconds}s"
+    elif seconds < 3600:
+        minutes = seconds // 60
+        seconds = seconds % 60
+        return f"{minutes}m {seconds}s"
+    else:
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        seconds = seconds % 60
+        return f"{hours}h {minutes}m {seconds}s"
+
+
+def create_progress_bar(percentage, width=30):
+    """Create a visual progress bar"""
+    filled = int(width * percentage / 100)
+    bar = "█" * filled + "░" * (width - filled)
+    return f"[{bar}] {percentage:.1f}%"
+
+
+async def show_download_progress(file_path, total_size):
+    """Show download progress for media files"""
+    try:
+        while True:
+            if os.path.exists(file_path):
+                current_size = os.path.getsize(file_path)
+                percentage = (current_size / total_size) * 100 if total_size > 0 else 0
+                
+                # Calculate download speed and ETA
+                if hasattr(show_download_progress, 'last_size'):
+                    speed = current_size - show_download_progress.last_size
+                    remaining = total_size - current_size
+                    eta = remaining / speed if speed > 0 else 0
+                    
+                    progress_bar = create_progress_bar(percentage)
+                    LOGGER.info(f"Download Progress: {progress_bar} | Speed: {speed/1024:.1f} KB/s | ETA: {format_time(eta)}")
+                else:
+                    show_download_progress.last_size = current_size
+                
+                if percentage >= 100:
+                    LOGGER.info("Download completed!")
+                    break
+                    
+            await sleep(1)
+    except Exception as e:
+        LOGGER.error(f"Error in progress tracking: {e}")
+
+
+async def show_processing_progress(file_path, operation="Processing"):
+    """Show processing progress for media operations"""
+    try:
+        start_time = time.time()
+        LOGGER.info(f"{operation} started for: {os.path.basename(file_path)}")
+        
+        # Monitor file changes during processing
+        last_size = 0
+        while True:
+            if os.path.exists(file_path):
+                current_size = os.path.getsize(file_path)
+                elapsed = time.time() - start_time
+                
+                if current_size != last_size:
+                    LOGGER.info(f"{operation} in progress... | File size: {current_size/1024/1024:.1f} MB | Elapsed: {format_time(elapsed)}")
+                    last_size = current_size
+                
+                # Check if processing is complete (file size stable)
+                await sleep(2)
+                if os.path.exists(file_path):
+                    new_size = os.path.getsize(file_path)
+                    if new_size == current_size:
+                        total_time = time.time() - start_time
+                        LOGGER.info(f"{operation} completed in {format_time(total_time)} | Final size: {current_size/1024/1024:.1f} MB")
+                        break
+            else:
+                LOGGER.warning(f"File not found during {operation.lower()}")
+                break
+                
+    except Exception as e:
+        LOGGER.error(f"Error in processing progress: {e}")
+
+
 async def stream_end_monitor(link, seek):
     """Monitor stream end and cleanup when media finishes"""
     try:
@@ -1802,6 +1885,10 @@ async def check_changes():
 async def is_audio(file):
     try:
         LOGGER.info(f"Checking audio in file: {file}")
+        
+        # Start audio analysis progress tracking
+        asyncio.create_task(show_processing_progress(file, "Audio Analysis"))
+        
         have_audio = False
         ffprobe_cmd = ["ffprobe", "-i", file, "-v", "quiet", "-of", "json", "-show_streams"]
         process = await asyncio.create_subprocess_exec(
@@ -1849,6 +1936,10 @@ async def is_audio(file):
 async def get_height_and_width(file):
     try:
         LOGGER.info(f"Analyzing media file: {file}")
+        
+        # Start processing progress tracking
+        asyncio.create_task(show_processing_progress(file, "Media Analysis"))
+        
         ffprobe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries", "stream=width,height", "-of", "json", file]
         process = await asyncio.create_subprocess_exec(
             *ffprobe_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -1879,8 +1970,15 @@ async def get_height_and_width(file):
                 if os.path.isfile(file):#if ts a file, its a tg file
                     LOGGER.info("Play from DC6 Failed, Downloading the file")
                     total=int((((Config.playlist[0][5]).split("_"))[1]))
+                    
+                    # Start download progress tracking
+                    asyncio.create_task(show_download_progress(file, total))
+                    
                     while not (os.stat(file).st_size) >= total:
-                        LOGGER.info(f"Downloading {Config.playlist[0][1]} - Completed - {round(((int(os.stat(file).st_size)) / int(total))*100)} %" )
+                        current_size = os.stat(file).st_size
+                        percentage = (current_size / total) * 100
+                        progress_bar = create_progress_bar(percentage)
+                        LOGGER.info(f"Downloading {Config.playlist[0][1]} - {progress_bar} | {current_size/1024/1024:.1f} MB / {total/1024/1024:.1f} MB")
                         await sleep(5)
                     return await get_height_and_width(file)
                 width, height = False, False
