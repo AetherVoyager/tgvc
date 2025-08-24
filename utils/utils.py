@@ -2484,7 +2484,14 @@ async def get_telegram_streaming_url(file_id):
         # Use the correct method to get file info
         file_info = await bot.get_file(file_id)
         
-        # Handle the file info properly
+        # Handle the file info properly - check if it's an async generator
+        if hasattr(file_info, '__aiter__'):
+            # It's an async generator, get the first item
+            async for info in file_info:
+                file_info = info
+                break
+        
+        # Now check if we have valid file info
         if hasattr(file_info, 'file_path') and file_info.file_path:
             # Construct the direct streaming URL like TG-FileStreamBot does
             streaming_url = f"https://api.telegram.org/file/bot{Config.BOT_TOKEN}/{file_info.file_path}"
@@ -2666,7 +2673,6 @@ async def optimized_download_and_play(file_id, title, file_size, seek):
             file_info = await bot.get_file(file_id)
             if hasattr(file_info, 'file_path') and file_info.file_path:
                 # Extract extension from file path
-                import os.path
                 _, ext = os.path.splitext(file_info.file_path)
                 if ext:
                     file_extension = ext
