@@ -2450,43 +2450,31 @@ async def startup_check():
 
 async def stream_while_downloading(file_id, title="Unknown", file_size=0, seek=None):
     """
-    Stream media using Telegram's direct streaming - much more efficient!
-    Uses Telegram's CDN URLs for direct streaming without downloading.
+    Smart streaming approach: Try direct streaming first, fallback to optimized download
     """
     try:
-        LOGGER.info(f"🚀 Starting direct streaming for: {title}")
-        LOGGER.info(f"📊 File size: {file_size/1024/1024:.1f} MB - streaming directly from Telegram!")
+        LOGGER.info(f"🚀 Starting smart streaming for: {title}")
+        LOGGER.info(f"📊 File size: {file_size/1024/1024:.1f} MB")
         
-        # Get direct streaming URL from Telegram
-        streaming_url = await get_telegram_streaming_url(file_id)
+        # For large files (>100MB), try direct streaming first
+        if file_size > 100 * 1024 * 1024:
+            LOGGER.info("📡 Large file detected, attempting direct streaming...")
+            streaming_url = await get_telegram_streaming_url(file_id)
+            
+            if streaming_url:
+                LOGGER.info(f"✅ Got streaming URL! Starting immediate playback...")
+                success = await start_direct_stream(streaming_url, 1280, 720, 0, seek, title)
+                if success:
+                    return True
         
-        if not streaming_url:
-            LOGGER.error("Could not get streaming URL, falling back to download method")
-            return await fallback_download_and_play(file_id, title, file_size, seek)
-        
-        LOGGER.info(f"✅ Got streaming URL! Starting immediate playback...")
-        
-        # Try to get media properties from the stream
-        width, height = await get_stream_dimensions(streaming_url, title)
-        duration = await get_stream_duration(streaming_url, title)
-        
-        # Start direct streaming from URL
-        success = await start_direct_stream(streaming_url, width, height, duration, seek, title)
-        
-        if success:
-            LOGGER.info(f"🎬 Successfully streaming: {title}")
-            # Monitor stream progress
-            if duration and duration > 0:
-                asyncio.create_task(monitor_streaming_progress(title, duration))
-            return True
-        else:
-            LOGGER.warning("Direct streaming failed, trying download method")
-            return await fallback_download_and_play(file_id, title, file_size, seek)
+        # Fallback to optimized download method
+        LOGGER.info("📥 Using optimized download method...")
+        return await optimized_download_and_play(file_id, title, file_size, seek)
             
     except Exception as e:
         LOGGER.error(f"Error in stream_while_downloading: {e}", exc_info=True)
-        LOGGER.info("Trying fallback download method...")
-        return await fallback_download_and_play(file_id, title, file_size, seek)
+        LOGGER.info("Trying optimized download method...")
+        return await optimized_download_and_play(file_id, title, file_size, seek)
 
 async def get_telegram_streaming_url(file_id):
     """
@@ -2661,32 +2649,41 @@ async def monitor_streaming_progress(title, duration):
     except Exception as e:
         LOGGER.error(f"Error monitoring streaming progress: {e}")
 
-async def fallback_download_and_play(file_id, title, file_size, seek):
+async def optimized_download_and_play(file_id, title, file_size, seek):
     """
-    Fallback method: download file and play locally with real-time progress
+    Optimized download method: Uses proven Telegram bot patterns for reliable downloads
     """
     try:
-        LOGGER.info(f"📥 Fallback: Downloading {title} to play locally")
+        LOGGER.info(f"📥 Starting optimized download: {title}")
         
-        # Use bot's built-in download with progress tracking
-        temp_file = f"./downloads/fallback_{int(time.time())}_{random.randint(1000, 9999)}.mp4"
+        # Create download directory
         os.makedirs("./downloads", exist_ok=True)
         
-        # Start progress monitoring BEFORE download
+        # Generate unique filename
+        timestamp = int(time.time())
+        random_id = random.randint(1000, 9999)
+        file_extension = ".mp4"  # Default extension
+        temp_file = f"./downloads/{timestamp}_{random_id}{file_extension}"
+        
+        # Start progress monitoring
         progress_task = asyncio.create_task(
-            show_download_progress_fallback(temp_file, file_size, title)
+            show_download_progress_optimized(temp_file, file_size, title)
         )
         
         try:
-            # Download using bot's method
+            # Use the proven bot.download_media method
+            LOGGER.info(f"📥 Downloading using bot.download_media...")
             downloaded_file = await bot.download_media(file_id, file_name=temp_file)
             
             if not downloaded_file or not os.path.exists(downloaded_file):
-                LOGGER.error("Fallback download failed")
+                LOGGER.error("Download failed - file not found after download")
+                progress_task.cancel()
                 return False
             
-            # Cancel progress task after download completes
+            # Cancel progress task
             progress_task.cancel()
+            
+            LOGGER.info(f"✅ Download completed: {downloaded_file}")
             
             # Get media properties
             width, height = await get_height_and_width(downloaded_file)
@@ -2710,12 +2707,12 @@ async def fallback_download_and_play(file_id, title, file_size, seek):
             return False
         
     except Exception as e:
-        LOGGER.error(f"Error in fallback download: {e}", exc_info=True)
+        LOGGER.error(f"Error in optimized download: {e}", exc_info=True)
         return False
 
-async def show_download_progress_fallback(file_path, expected_size, title):
+async def show_download_progress_optimized(file_path, expected_size, title):
     """
-    Show download progress for fallback method with real-time CLI progress bars
+    Show download progress for optimized method with real-time CLI progress bars
     """
     try:
         start_time = time.time()
