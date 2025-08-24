@@ -1,14 +1,22 @@
-pyrofork
-py-tgcalls>=2.2.6
-yt-dlp
-ffmpeg
-youtube-search-python
-httpx>=0.24.0
-youtube-search
-heroku3
-Pillow>=9.5.0
-motor
-dnspython
-pytz
-apscheduler
-python-dotenv
+# Core dependencies
+pyrogram>=2.0.0
+pytgcalls>=2.2.6
+tgcrypto>=1.2.5
+python-dotenv>=0.19.0
+
+# Database
+motor>=3.0.0
+pymongo>=4.0.0
+
+# Media processing
+yt-dlp>=2023.3.4
+youtube-search-python>=1.6.6
+Pillow>=9.0.0
+
+# Utilities
+APScheduler>=3.9.1
+requests>=2.28.0
+PTN>=3.0.0
+
+# Optional - uncomment if needed
+# pyrogram[fast]

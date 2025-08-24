@@ -2451,7 +2451,7 @@ async def startup_check():
 # Clean, simple streaming implementation - based on proven patterns
 async def play_file_simple(file_id, title, file_size=0, seek=None):
     """
-    Simple, clean file playing - no complex streaming, just download and play
+    Simple, clean file playing with real progress tracking
     """
     try:
         LOGGER.info(f"🎬 Simple play: {title}")
@@ -2465,23 +2465,33 @@ async def play_file_simple(file_id, title, file_size=0, seek=None):
         
         LOGGER.info(f"📁 Download to: {filename}")
         
-        # Simple download with progress
+        # Show download start
         print(f"\n📥 Downloading: {title}")
         print("=" * 50)
         
         try:
-            # Use bot.download_media directly - this is proven to work
+            # Start progress monitoring
+            progress_task = asyncio.create_task(
+                monitor_download_progress(filename, file_size, title)
+            )
+            
+            # Use bot.download_media with progress callback
             downloaded_file = await bot.download_media(
                 file_id, 
-                file_name=filename
+                file_name=filename,
+                progress=download_progress_callback,
+                progress_args=(title, file_size)
             )
+            
+            # Cancel progress monitoring
+            progress_task.cancel()
             
             if not downloaded_file or not os.path.exists(downloaded_file):
                 LOGGER.error("Download failed")
                 return False
             
             LOGGER.info(f"✅ Download complete: {downloaded_file}")
-            print(f"✅ Download complete!")
+            print(f"\n✅ Download complete!")
             
             # Get basic media info
             try:
@@ -2491,7 +2501,7 @@ async def play_file_simple(file_id, title, file_size=0, seek=None):
                 width, height = 1280, 720
                 duration = 0
             
-            # Play the file
+            # Play downloaded file
             success = await start_streaming_from_file(downloaded_file, width, height, duration, seek)
             
             if success:
@@ -2507,6 +2517,72 @@ async def play_file_simple(file_id, title, file_size=0, seek=None):
     except Exception as e:
         LOGGER.error(f"Play error: {e}")
         return False
+
+def download_progress_callback(current, total, title, expected_size):
+    """
+    Progress callback for bot.download_media - shows real-time progress
+    """
+    try:
+        if total > 0:
+            percentage = (current / total) * 100
+            current_mb = current / (1024 * 1024)
+            total_mb = total / (1024 * 1024)
+            
+            # Create progress bar
+            bar_width = 40
+            filled_width = int((percentage / 100) * bar_width)
+            bar = "█" * filled_width + "░" * (bar_width - filled_width)
+            
+            # Calculate speed
+            if hasattr(download_progress_callback, 'start_time'):
+                elapsed = time.time() - download_progress_callback.start_time
+                if elapsed > 0:
+                    speed_mb = current_mb / elapsed
+                    speed_str = f"{speed_mb:.1f} MB/s"
+                else:
+                    speed_str = "0.0 MB/s"
+            else:
+                download_progress_callback.start_time = time.time()
+                speed_str = "0.0 MB/s"
+            
+            # Show progress
+            print(f"\r📥 {title[:25]:<25} | {bar} | {percentage:5.1f}% | {current_mb:.1f} MB | {speed_str}", end="", flush=True)
+                
+    except Exception as e:
+        pass  # Don't let progress callback errors break the download
+
+async def monitor_download_progress(file_path, expected_size, title):
+    """
+    Monitor download progress and show completion
+    """
+    try:
+        start_time = time.time()
+        
+        while True:
+            if os.path.exists(file_path):
+                try:
+                    current_size = os.path.getsize(file_path)
+                    
+                    # Check if download is complete
+                    if expected_size > 0 and current_size >= expected_size:
+                        total_time = time.time() - start_time
+                        print(f"\n🎉 Download completed in {format_time(total_time)}!")
+                        break
+                    
+                    # Check for timeout (1 hour for large files)
+                    if time.time() - start_time > 3600:
+                        print(f"\n⏰ Download timed out after 1 hour")
+                        break
+                
+                except OSError:
+                    pass
+            
+            await sleep(2)
+            
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        LOGGER.error(f"Error in download progress: {e}")
 
 # Remove all the complex functions and replace with simple ones
 async def stream_while_downloading(file_id, title="Unknown", file_size=0, seek=None):
