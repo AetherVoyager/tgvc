@@ -2493,8 +2493,15 @@ async def get_telegram_streaming_url(file_id):
     Get direct streaming URL from Telegram for immediate playback
     """
     try:
-        # Use bot.get_file to get the file URL - fix async generator issue
+        # Use bot.get_file to get the file URL - handle async generator properly
         file_info = await bot.get_file(file_id)
+        
+        # Check if file_info is an async generator and get the first item
+        if hasattr(file_info, '__aiter__'):
+            async for info in file_info:
+                file_info = info
+                break
+        
         if file_info and hasattr(file_info, 'file_path'):
             # Construct the direct download URL
             streaming_url = f"https://api.telegram.org/file/bot{Config.BOT_TOKEN}/{file_info.file_path}"
@@ -2670,32 +2677,37 @@ async def fallback_download_and_play(file_id, title, file_size, seek):
             show_download_progress_fallback(temp_file, file_size, title)
         )
         
-        # Download using bot's method
-        downloaded_file = await bot.download_media(file_id, file_name=temp_file)
-        
-        if not downloaded_file or not os.path.exists(downloaded_file):
-            LOGGER.error("Fallback download failed")
+        try:
+            # Download using bot's method
+            downloaded_file = await bot.download_media(file_id, file_name=temp_file)
+            
+            if not downloaded_file or not os.path.exists(downloaded_file):
+                LOGGER.error("Fallback download failed")
+                return False
+            
+            # Cancel progress task after download completes
+            progress_task.cancel()
+            
+            # Get media properties
+            width, height = await get_height_and_width(downloaded_file)
+            duration = await get_duration(downloaded_file)
+            
+            if not width or not height:
+                width, height = 1280, 720
+            
+            # Play downloaded file
+            success = await start_streaming_from_file(downloaded_file, width, height, duration, seek)
+            
+            if success:
+                # Clean up after a delay
+                asyncio.create_task(cleanup_specific_file(downloaded_file, delay=duration + 60))
+            
+            return success
+            
+        except Exception as e:
+            LOGGER.error(f"Error during download: {e}")
             progress_task.cancel()
             return False
-        
-        # Cancel progress task after download completes
-        progress_task.cancel()
-        
-        # Get media properties
-        width, height = await get_height_and_width(downloaded_file)
-        duration = await get_duration(downloaded_file)
-        
-        if not width or not height:
-            width, height = 1280, 720
-        
-        # Play downloaded file
-        success = await start_streaming_from_file(downloaded_file, width, height, duration, seek)
-        
-        if success:
-            # Clean up after a delay
-            asyncio.create_task(cleanup_specific_file(downloaded_file, delay=duration + 60))
-        
-        return success
         
     except Exception as e:
         LOGGER.error(f"Error in fallback download: {e}", exc_info=True)
@@ -2709,66 +2721,81 @@ async def show_download_progress_fallback(file_path, expected_size, title):
         start_time = time.time()
         last_size = 0
         last_update = start_time
+        file_found = False
         
         LOGGER.info(f"📊 Downloading {title} | Size: {expected_size/1024/1024:.1f} MB")
         print(f"\n📥 Starting download: {title}")
         print("=" * 60)
         
+        # Wait for file to appear
+        while not file_found:
+            if os.path.exists(file_path):
+                file_found = True
+                print(f"📁 File created, monitoring progress...")
+                break
+            print(f"\r⏳ Waiting for download to start...", end="", flush=True)
+            await sleep(1)
+        
         while True:
             if os.path.exists(file_path):
-                current_size = os.path.getsize(file_path)
-                current_time = time.time()
+                try:
+                    current_size = os.path.getsize(file_path)
+                    current_time = time.time()
+                    
+                    # Update every 2 seconds for smooth progress
+                    if current_time - last_update >= 2:
+                        if current_size != last_size:
+                            percentage = (current_size / expected_size) * 100 if expected_size > 0 else 0
+                            
+                            # Calculate speed and ETA
+                            if last_size > 0:
+                                time_diff = current_time - last_update
+                                speed = (current_size - last_size) / time_diff
+                                
+                                if speed > 1024 * 1024:
+                                    speed_str = f"{speed/1024/1024:.1f} MB/s"
+                                else:
+                                    speed_str = f"{speed/1024:.1f} KB/s"
+                                
+                                # Calculate ETA
+                                if speed > 0 and expected_size > 0:
+                                    remaining = expected_size - current_size
+                                    eta_seconds = remaining / speed
+                                    eta_str = format_time(eta_seconds)
+                                else:
+                                    eta_str = "Unknown"
+                                
+                                # Create progress bar
+                                bar_width = 50
+                                filled_width = int((percentage / 100) * bar_width)
+                                bar = "█" * filled_width + "░" * (bar_width - filled_width)
+                                
+                                # Clear line and show progress
+                                print(f"\r📥 {title[:30]:<30} | {bar} | {percentage:5.1f}% | {speed_str:>10} | ETA: {eta_str:>8}", end="", flush=True)
+                                
+                                # Show size info every 10 seconds
+                                if int(current_time - start_time) % 10 == 0:
+                                    print(f"\n📊 Size: {current_size/1024/1024:.1f} MB / {expected_size/1024/1024:.1f} MB")
+                                
+                                last_size = current_size
+                                last_update = current_time
+                    
+                    # Check if download is complete
+                    if expected_size > 0 and current_size >= expected_size:
+                        print(f"\n✅ Download completed: {title}")
+                        total_time = current_time - start_time
+                        LOGGER.info(f"🎉 Download completed in {format_time(total_time)}!")
+                        break
+                    
+                    # Check for timeout (2 hours for large files)
+                    if current_time - start_time > 7200:
+                        print(f"\n⏰ Download timed out after 2 hours")
+                        LOGGER.warning("Download timed out after 2 hours")
+                        break
                 
-                # Update every 2 seconds for smooth progress
-                if current_time - last_update >= 2:
-                    if current_size != last_size:
-                        percentage = (current_size / expected_size) * 100 if expected_size > 0 else 0
-                        
-                        # Calculate speed and ETA
-                        if last_size > 0:
-                            time_diff = current_time - last_update
-                            speed = (current_size - last_size) / time_diff
-                            
-                            if speed > 1024 * 1024:
-                                speed_str = f"{speed/1024/1024:.1f} MB/s"
-                            else:
-                                speed_str = f"{speed/1024:.1f} KB/s"
-                            
-                            # Calculate ETA
-                            if speed > 0 and expected_size > 0:
-                                remaining = expected_size - current_size
-                                eta_seconds = remaining / speed
-                                eta_str = format_time(eta_seconds)
-                            else:
-                                eta_str = "Unknown"
-                            
-                            # Create progress bar
-                            bar_width = 50
-                            filled_width = int((percentage / 100) * bar_width)
-                            bar = "█" * filled_width + "░" * (bar_width - filled_width)
-                            
-                            # Clear line and show progress
-                            print(f"\r📥 {title[:30]:<30} | {bar} | {percentage:5.1f}% | {speed_str:>10} | ETA: {eta_str:>8}", end="", flush=True)
-                            
-                            # Show size info every 10 seconds
-                            if int(current_time - start_time) % 10 == 0:
-                                print(f"\n📊 Size: {current_size/1024/1024:.1f} MB / {expected_size/1024/1024:.1f} MB")
-                            
-                            last_size = current_size
-                            last_update = current_time
-                
-                # Check if download is complete
-                if expected_size > 0 and current_size >= expected_size:
-                    print(f"\n✅ Download completed: {title}")
-                    total_time = current_time - start_time
-                    LOGGER.info(f"🎉 Download completed in {format_time(total_time)}!")
-                    break
-                
-                # Check for timeout (2 hours for large files)
-                if current_time - start_time > 7200:
-                    print(f"\n⏰ Download timed out after 2 hours")
-                    LOGGER.warning("Download timed out after 2 hours")
-                    break
+                except OSError:
+                    # File might be temporarily inaccessible during download
+                    pass
             
             await sleep(1)
             
