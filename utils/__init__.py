@@ -13,6 +13,8 @@ from .utils import (
     chat_filter, sudo_filter, add_to_db_playlist, download, get_duration,
     get_link, import_play_list, is_audio, send_playlist, c_play,
     is_ytdl_supported, get_song_and_artist, scheduler, play_direct_file,
-    chek_the_media, join_call, sleep, bot
+    chek_the_media, join_call, sleep, bot, stream_while_downloading,
+    download_with_progress, monitor_download_progress_cli, start_streaming_from_file,
+    monitor_stream_progress, get_file_info, get_file_size_from_message
 )
 # from .pyro_dl import Downloader  # Temporarily commented out to fix circular import

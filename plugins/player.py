@@ -42,7 +42,9 @@ from utils import (
     chat_filter,
     c_play,
     is_ytdl_supported,
-    get_song_and_artist
+    get_song_and_artist,
+    stream_while_downloading,
+    get_file_size_from_message
 )
 from pyrogram.types import (
     InlineKeyboardMarkup, 
@@ -135,31 +137,26 @@ async def play_file_directly(client, message):
             await delete_messages([message, msg])
             return
 
-        # Process Telegram media file
+        # Process Telegram media file using new streaming-while-downloading approach
         try:
-            # Download the file
-            await msg.edit("⚡️ **Downloading and Processing...**")
+            await msg.edit("🚀 **Starting streaming-while-downloading...**")
             
-            # Get file path
-            file_path = await bot.download_media(file_id)
-            if not file_path:
-                await msg.edit("❌ Failed to download file")
-                await delete_messages([message, msg])
-                return
-                
-            # Store file reference for cleanup
-            Config.GET_FILE[unique] = file_path
+            # Get file size for better progress tracking
+            file_size = await get_file_size_from_message(message, file_id)
+            if file_size:
+                size_mb = file_size / (1024 * 1024)
+                await msg.edit(f"🚀 **Starting streaming-while-downloading...**\n\n📊 **File size:** {size_mb:.1f} MB")
             
-            # Play the file directly
-            success = await play_direct_file(file_path, title)
+            # Use the new streaming approach with file size info
+            success = await stream_while_downloading(file_id, title, file_size)
             
             if success:
-                await msg.edit(f"✅ **Now playing: {title}**")
+                await msg.edit(f"✅ **Now streaming: {title}**\n\n💡 **Tip:** The file is downloading in the background while streaming!")
                 # Clean up message after a delay
-                await asyncio.sleep(3)
+                await asyncio.sleep(5)
                 await msg.delete()
             else:
-                await msg.edit("❌ **Failed to play file**")
+                await msg.edit("❌ **Failed to start streaming**")
                 await delete_messages([message, msg])
                 
         except Exception as e:
