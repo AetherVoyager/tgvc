@@ -2448,651 +2448,78 @@ async def startup_check():
         LOGGER.warning("No DATABASE_URI , found. It is recommended to use a database.")
     return True
 
-async def stream_while_downloading(file_id, title="Unknown", file_size=0, seek=None):
+# Clean, simple streaming implementation - based on proven patterns
+async def play_file_simple(file_id, title, file_size=0, seek=None):
     """
-    Smart streaming approach: Skip problematic direct streaming, use proven download method
-    """
-    try:
-        LOGGER.info(f"🚀 Starting smart streaming for: {title}")
-        LOGGER.info(f"📊 File size: {file_size/1024/1024:.1f} MB")
-        
-        # Skip direct streaming for now due to API limitations
-        # Go straight to the proven download method
-        LOGGER.info(f"📥 Using optimized download method (direct streaming disabled)...")
-        return await optimized_download_and_play(file_id, title, file_size, seek)
-        
-    except Exception as e:
-        LOGGER.error(f"Error in stream_while_downloading: {e}", exc_info=True)
-        LOGGER.info("Trying optimized download method...")
-        return await optimized_download_and_play(file_id, title, file_size, seek)
-
-async def get_telegram_streaming_url(file_id):
-    """
-    Get direct streaming URL from Telegram - based on TG-FileStreamBot approach
+    Simple, clean file playing - no complex streaming, just download and play
     """
     try:
-        # Use the correct method to get file info
-        file_info = await bot.get_file(file_id)
+        LOGGER.info(f"🎬 Simple play: {title}")
         
-        # Handle the file info properly - check if it's an async generator
-        if hasattr(file_info, '__aiter__'):
-            # It's an async generator, get the first item
-            async for info in file_info:
-                file_info = info
-                break
-        
-        # Now check if we have valid file info
-        if hasattr(file_info, 'file_path') and file_info.file_path:
-            # Construct the direct streaming URL like TG-FileStreamBot does
-            streaming_url = f"https://api.telegram.org/file/bot{Config.BOT_TOKEN}/{file_info.file_path}"
-            LOGGER.info(f"✅ Generated streaming URL: {streaming_url[:50]}...")
-            return streaming_url
-        else:
-            LOGGER.warning("No file_path found in file info")
-            return None
-            
-    except Exception as e:
-        LOGGER.error(f"Error getting streaming URL: {e}")
-        return None
-
-async def get_telegram_streaming_url_simple(file_id):
-    """
-    Alternative approach: Use message.get_file() instead of bot.get_file()
-    This is how most successful bots actually work
-    """
-    try:
-        # For now, let's skip direct streaming and go straight to download
-        # This avoids the async generator issue completely
-        LOGGER.info("🔄 Skipping direct streaming due to API limitations, using download method")
-        return None
-        
-    except Exception as e:
-        LOGGER.error(f"Error in simple streaming URL: {e}")
-        return None
-
-async def get_stream_dimensions(url, title):
-    """
-    Get video dimensions from streaming URL using ffprobe
-    """
-    try:
-        LOGGER.info(f"🔍 Analyzing stream dimensions for: {title}")
-        cmd = [
-            'ffprobe', '-v', 'quiet', '-print_format', 'json', 
-            '-show_streams', '-select_streams', 'v:0', url
-        ]
-        
-        process = await asyncio.create_subprocess_exec(
-            *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        )
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10)
-        
-        if process.returncode == 0:
-            import json
-            data = json.loads(stdout.decode())
-            streams = data.get('streams', [])
-            if streams:
-                width = streams[0].get('width', 1280)
-                height = streams[0].get('height', 720)
-                LOGGER.info(f"📐 Stream dimensions: {width}x{height}")
-                return width, height
-        
-        LOGGER.warning("Could not get stream dimensions, using defaults")
-        return 1280, 720
-        
-    except Exception as e:
-        LOGGER.warning(f"Error getting stream dimensions: {e}")
-        return 1280, 720
-
-async def get_stream_duration(url, title):
-    """
-    Get stream duration from URL using ffprobe
-    """
-    try:
-        LOGGER.info(f"⏱️ Getting duration for: {title}")
-        cmd = [
-            'ffprobe', '-v', 'quiet', '-print_format', 'json', 
-            '-show_format', url
-        ]
-        
-        process = await asyncio.create_subprocess_exec(
-            *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        )
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10)
-        
-        if process.returncode == 0:
-            import json
-            data = json.loads(stdout.decode())
-            format_info = data.get('format', {})
-            duration = float(format_info.get('duration', 0))
-            LOGGER.info(f"⏱️ Stream duration: {format_time(duration)}")
-            return duration
-        
-        return 0
-        
-    except Exception as e:
-        LOGGER.warning(f"Error getting stream duration: {e}")
-        return 0
-
-async def start_direct_stream(url, width, height, duration, seek, title):
-    """
-    Start direct streaming from URL without downloading
-    """
-    try:
-        LOGGER.info(f"🎬 Starting direct stream for: {title}")
-        
-        # Join call and start streaming
-        if seek:
-            start = str(seek['start'])
-            end = str(seek['end'])
-            ffmpeg_params = f'-ss {start} -t {end}'
-        else:
-            ffmpeg_params = None
-        
-        # Start streaming directly from URL
-        if not Config.IS_VIDEO:
-            await group_call.play(
-                int(Config.CHAT),
-                MediaStream(
-                    url,
-                    audio_parameters=AudioQuality.HIGH,
-                    additional_ffmpeg_parameters=ffmpeg_params,
-                ),
-            )
-        else:
-            cwidth, cheight = resize_ratio(width, height, Config.CUSTOM_QUALITY)
-            await group_call.play(
-                int(Config.CHAT),
-                MediaStream(
-                    url,
-                    video_parameters=get_video_quality(),
-                    audio_parameters=AudioQuality.HIGH,
-                    ffmpeg_parameters=ffmpeg_params,
-                ),
-            )
-        
-        Config.CALL_STATUS = True
-        LOGGER.info("✅ Direct stream started successfully!")
-        
-        # Start automatic stream end monitoring
-        if duration and duration > 0 and not seek:
-            asyncio.create_task(stream_end_monitor_direct(title, duration))
-        
-        return True
-        
-    except Exception as e:
-        LOGGER.error(f"Error starting direct stream: {e}", exc_info=True)
-        return False
-
-async def stream_end_monitor_direct(title, duration):
-    """
-    Monitor direct stream and end when duration is reached
-    """
-    try:
-        LOGGER.info(f"⏰ Stream will end in {format_time(duration)}")
-        await sleep(duration + 2)  # Add small buffer
-        LOGGER.info(f"🎬 Stream finished: {title}")
-        await group_call.leave_call()
-    except Exception as e:
-        LOGGER.error(f"Error in stream end monitor: {e}")
-
-async def monitor_streaming_progress(title, duration):
-    """
-    Show streaming progress in logs
-    """
-    try:
-        start_time = time.time()
-        
-        while True:
-            elapsed = time.time() - start_time
-            if elapsed >= duration:
-                LOGGER.info(f"🎉 Stream completed: {title}")
-                break
-                
-            # Log progress every 30 seconds
-            if int(elapsed) % 30 == 0 and elapsed > 0:
-                percentage = min(100, (elapsed / duration) * 100)
-                remaining = duration - elapsed
-                LOGGER.info(f"🎵 Streaming {title} | {percentage:.1f}% | {format_time(elapsed)} / {format_time(duration)} | Remaining: {format_time(remaining)}")
-            
-            await sleep(10)
-            
-    except Exception as e:
-        LOGGER.error(f"Error monitoring streaming progress: {e}")
-
-async def optimized_download_and_play(file_id, title, file_size, seek):
-    """
-    Optimized download method: Based on TG-FileStreamBot proven patterns
-    """
-    try:
-        LOGGER.info(f"📥 Starting optimized download: {title}")
-        
-        # Create download directory
+        # Create downloads directory
         os.makedirs("./downloads", exist_ok=True)
         
-        # Generate unique filename with proper extension
+        # Generate simple filename
         timestamp = int(time.time())
-        random_id = random.randint(1000, 9999)
+        filename = f"./downloads/{timestamp}_{title[:20].replace(' ', '_')}.mp4"
         
-        # Use default extension - avoid problematic bot.get_file() call
-        file_extension = ".mp4"  # Default fallback
+        LOGGER.info(f"📁 Download to: {filename}")
         
-        temp_file = f"./downloads/{timestamp}_{random_id}{file_extension}"
-        LOGGER.info(f"📁 Download target: {temp_file}")
-        
-        # Start progress monitoring
-        progress_task = asyncio.create_task(
-            show_download_progress_optimized(temp_file, file_size, title)
-        )
+        # Simple download with progress
+        print(f"\n📥 Downloading: {title}")
+        print("=" * 50)
         
         try:
-            # Use the proven bot.download_media method with progress callback
-            LOGGER.info(f"📥 Starting download with bot.download_media...")
-            
-            # Download with progress tracking
-            LOGGER.info(f"🔍 Starting bot.download_media for file_id: {file_id[:8]}...")
+            # Use bot.download_media directly - this is proven to work
             downloaded_file = await bot.download_media(
                 file_id, 
-                file_name=temp_file,
-                progress=download_progress_callback,
-                progress_args=(title, file_size)
+                file_name=filename
             )
-            LOGGER.info(f"🔍 Download result: {downloaded_file}")
             
             if not downloaded_file or not os.path.exists(downloaded_file):
-                LOGGER.error("Download failed - file not found after download")
-                progress_task.cancel()
+                LOGGER.error("Download failed")
                 return False
             
-            # Cancel progress task
-            progress_task.cancel()
+            LOGGER.info(f"✅ Download complete: {downloaded_file}")
+            print(f"✅ Download complete!")
             
-            LOGGER.info(f"✅ Download completed: {downloaded_file}")
-            
-            # Get media properties
-            width, height = await get_height_and_width(downloaded_file)
-            duration = await get_duration(downloaded_file)
-            
-            if not width or not height:
+            # Get basic media info
+            try:
+                width, height = await get_height_and_width(downloaded_file)
+                duration = await get_duration(downloaded_file)
+            except:
                 width, height = 1280, 720
+                duration = 0
             
-            # Play downloaded file
+            # Play the file
             success = await start_streaming_from_file(downloaded_file, width, height, duration, seek)
             
             if success:
-                # Clean up after a delay
-                asyncio.create_task(cleanup_specific_file(downloaded_file, delay=duration + 60))
+                # Clean up after playing
+                asyncio.create_task(cleanup_specific_file(downloaded_file, delay=300))  # 5 minutes
             
             return success
             
         except Exception as e:
-            LOGGER.error(f"Error during download: {e}")
-            progress_task.cancel()
+            LOGGER.error(f"Download error: {e}")
             return False
-        
+            
     except Exception as e:
-        LOGGER.error(f"Error in optimized download: {e}", exc_info=True)
+        LOGGER.error(f"Play error: {e}")
         return False
 
-def download_progress_callback(current, total, title, expected_size):
+# Remove all the complex functions and replace with simple ones
+async def stream_while_downloading(file_id, title="Unknown", file_size=0, seek=None):
     """
-    Progress callback for bot.download_media - shows real-time progress
+    Simple streaming - just play the file
     """
-    try:
-        if total > 0:
-            percentage = (current / total) * 100
-            current_mb = current / (1024 * 1024)
-            total_mb = total / (1024 * 1024)
-            
-            # Create progress bar
-            bar_width = 40
-            filled_width = int((percentage / 100) * bar_width)
-            bar = "█" * filled_width + "░" * (bar_width - filled_width)
-            
-            # Calculate speed (if we have expected size)
-            if expected_size > 0:
-                speed_mb = current_mb / (time.time() - getattr(download_progress_callback, 'start_time', time.time()))
-                speed_str = f"{speed_mb:.1f} MB/s"
-            else:
-                speed_str = "Unknown"
-            
-            # Show progress
-            print(f"\r📥 {title[:25]:<25} | {bar} | {percentage:5.1f}% | {current_mb:.1f} MB | {speed_str}", end="", flush=True)
-            
-            # Store start time for speed calculation
-            if not hasattr(download_progress_callback, 'start_time'):
-                download_progress_callback.start_time = time.time()
-                
-    except Exception as e:
-        pass  # Don't let progress callback errors break the download
+    return await play_file_simple(file_id, title, file_size, seek)
 
-async def show_download_progress_optimized(file_path, expected_size, title):
+async def optimized_download_and_play(file_id, title, file_size, seek):
     """
-    Simplified progress monitoring - main progress is handled by download_progress_callback
+    Simple download and play
     """
-    try:
-        LOGGER.info(f"📊 Monitoring download: {title} | Size: {expected_size/1024/1024:.1f} MB")
-        print(f"\n📥 Starting download: {title}")
-        print("=" * 60)
-        
-        # Wait for file to appear and monitor completion
-        file_found = False
-        start_time = time.time()
-        
-        while not file_found:
-            if os.path.exists(file_path):
-                file_found = True
-                print(f"📁 File created, download in progress...")
-                break
-            print(f"\r⏳ Waiting for download to start...", end="", flush=True)
-            await sleep(1)
-        
-        # Monitor for completion
-        while True:
-            if os.path.exists(file_path):
-                try:
-                    current_size = os.path.getsize(file_path)
-                    
-                    # Check if download is complete
-                    if expected_size > 0 and current_size >= expected_size:
-                        print(f"\n✅ Download completed: {title}")
-                        total_time = time.time() - start_time
-                        LOGGER.info(f"🎉 Download completed in {format_time(total_time)}!")
-                        break
-                    
-                    # Check for timeout (2 hours for large files)
-                    if time.time() - start_time > 7200:
-                        print(f"\n⏰ Download timed out after 2 hours")
-                        LOGGER.warning("Download timed out after 2 hours")
-                        break
-                
-                except OSError:
-                    pass
-            
-            await sleep(2)
-            
-    except asyncio.CancelledError:
-        print(f"\n⏹️ Download progress monitoring cancelled")
-        pass
-    except Exception as e:
-        LOGGER.error(f"Error in download progress: {e}")
-        print(f"\n❌ Error in progress tracking: {e}")
+    return await play_file_simple(file_id, title, file_size, seek)
 
-async def cleanup_specific_file(file_path, delay=0):
-    """
-    Clean up a specific file after optional delay
-    """
-    try:
-        if delay > 0:
-            await sleep(delay)
-        
-        if os.path.exists(file_path):
-            os.remove(file_path)
-            LOGGER.info(f"🗑️ Cleaned up: {os.path.basename(file_path)}")
-    except Exception as e:
-        LOGGER.error(f"Error cleaning up file: {e}")
-
-async def download_with_progress(file_id, file_path, title, file_size=0):
-    """
-    Download file with real-time progress tracking and CLI progress bars
-    """
-    try:
-        LOGGER.info(f"📥 Starting download: {title}")
-        
-        # Use provided file size or get from file info
-        if file_size <= 0:
-            file_info = await get_file_info(file_id)
-            if file_info:
-                file_size = file_info.get('file_size', 0)
-        
-        file_name = f"file_{file_id[:8]}"
-        LOGGER.info(f"📊 File: {file_name} | Expected size: {file_size/1024/1024:.1f} MB")
-        
-        # Start download using pyro_dl
-        downloader = Downloader()
-        download_path = await downloader.pyro_dl(file_id)
-        
-        if not download_path or not os.path.exists(download_path):
-            LOGGER.error("Download failed")
-            return False
-        
-        # Move to our streaming location
-        if download_path != file_path:
-            import shutil
-            shutil.move(download_path, file_path)
-        
-        # Monitor download progress with CLI progress bars
-        await monitor_download_progress_cli(file_path, file_size, title)
-        
-        LOGGER.info(f"✅ Download completed: {title}")
-        return True
-        
-    except Exception as e:
-        LOGGER.error(f"Error in download_with_progress: {e}", exc_info=True)
-        return False
-
-async def monitor_download_progress_cli(file_path, expected_size, title):
-    """
-    Show real-time CLI progress bars for download progress
-    """
-    try:
-        start_time = time.time()
-        last_size = 0
-        last_update = start_time
-        
-        # Progress bar characters
-        bar_width = 50
-        progress_chars = "█▇▆▅▄▃▂▁"
-        
-        LOGGER.info(f"📊 Download Progress for: {title}")
-        LOGGER.info("=" * 60)
-        
-        while True:
-            if os.path.exists(file_path):
-                current_size = os.path.getsize(file_path)
-                current_time = time.time()
-                
-                # Calculate progress
-                if expected_size > 0:
-                    percentage = min(100, (current_size / expected_size) * 100)
-                else:
-                    percentage = 0
-                
-                # Update every 2 seconds
-                if current_time - last_update >= 2:
-                    # Calculate speed
-                    if last_size > 0:
-                        time_diff = current_time - last_update
-                        speed = (current_size - last_size) / time_diff
-                        
-                        # Format speed
-                        if speed > 1024 * 1024:
-                            speed_str = f"{speed/1024/1024:.1f} MB/s"
-                        else:
-                            speed_str = f"{speed/1024:.1f} KB/s"
-                        
-                        # Calculate ETA
-                        if speed > 0 and expected_size > 0:
-                            remaining = expected_size - current_size
-                            eta_seconds = remaining / speed
-                            eta_str = format_time(eta_seconds)
-                        else:
-                            eta_str = "Unknown"
-                        
-                        # Create progress bar
-                        filled_width = int((percentage / 100) * bar_width)
-                        bar = "█" * filled_width + "░" * (bar_width - filled_width)
-                        
-                        # Clear line and show progress
-                        print(f"\r📥 {title[:30]:<30} | {bar} | {percentage:5.1f}% | {speed_str:>10} | ETA: {eta_str:>8}", end="", flush=True)
-                        
-                        # Show size info every 10 seconds
-                        if int(current_time - start_time) % 10 == 0:
-                            print(f"\n📊 Size: {current_size/1024/1024:.1f} MB / {expected_size/1024/1024:.1f} MB")
-                        
-                        last_size = current_size
-                        last_update = current_time
-                
-                # Check if download is complete
-                if expected_size > 0 and current_size >= expected_size:
-                    print(f"\n✅ Download completed: {title}")
-                    total_time = current_time - start_time
-                    LOGGER.info(f"🎉 Download completed in {format_time(total_time)}!")
-                    break
-                
-                # Check for timeout (1 hour)
-                if current_time - start_time > 3600:
-                    print(f"\n⏰ Download timed out after 1 hour")
-                    LOGGER.warning("Download timed out after 1 hour")
-                    break
-                
-                await sleep(1)
-            else:
-                await sleep(1)
-                
-    except Exception as e:
-        LOGGER.error(f"Error monitoring download progress: {e}", exc_info=True)
-
-async def start_streaming_from_file(file_path, width, height, duration, seek=None):
-    """
-    Start streaming from a local file (can be partially downloaded)
-    """
-    try:
-        LOGGER.info(f"🎬 Starting stream from: {os.path.basename(file_path)}")
-        
-        # Check if we have enough data to start
-        if not os.path.exists(file_path):
-            LOGGER.error("File not found for streaming")
-            return False
-            
-        current_size = os.path.getsize(file_path)
-        if current_size < 1024 * 1024:  # Less than 1MB
-            LOGGER.error("File too small to start streaming")
-            return False
-        
-        # Join call and start streaming
-        if seek:
-            start = str(seek['start'])
-            end = str(seek['end'])
-            ffmpeg_params = f'-ss {start} -t {end}'
-        else:
-            ffmpeg_params = None
-        
-        # Start streaming
-        if not Config.IS_VIDEO:
-            await group_call.play(
-                int(Config.CHAT),
-                MediaStream(
-                    file_path,
-                    audio_parameters=AudioQuality.HIGH,
-                    additional_ffmpeg_parameters=ffmpeg_params,
-                ),
-            )
-        else:
-            cwidth, cheight = resize_ratio(width, height, Config.CUSTOM_QUALITY)
-            await group_call.play(
-                int(Config.CHAT),
-                MediaStream(
-                    file_path,
-                    video_parameters=get_video_quality(),
-                    audio_parameters=AudioQuality.HIGH,
-                    ffmpeg_parameters=ffmpeg_params,
-                ),
-            )
-        
-        Config.CALL_STATUS = True
-        LOGGER.info("✅ Stream started successfully!")
-        
-        # Start stream monitoring
-        asyncio.create_task(monitor_stream_progress(file_path, duration))
-        
-        return True
-        
-    except Exception as e:
-        LOGGER.error(f"Error starting stream: {e}", exc_info=True)
-        return False
-
-async def monitor_stream_progress(file_path, duration):
-    """
-    Monitor streaming progress and show CLI progress
-    """
-    try:
-        if not duration or duration <= 0:
-            return
-            
-        start_time = time.time()
-        bar_width = 40
-        
-        LOGGER.info(f"🎵 Stream Progress | Duration: {format_time(duration)}")
-        LOGGER.info("=" * 50)
-        
-        while True:
-            elapsed = time.time() - start_time
-            if elapsed >= duration:
-                print(f"\n🎉 Stream completed!")
-                break
-                
-            # Calculate progress
-            percentage = min(100, (elapsed / duration) * 100)
-            filled_width = int((percentage / 100) * bar_width)
-            bar = "█" * filled_width + "░" * (bar_width - filled_width)
-            
-            # Show progress bar
-            remaining = duration - elapsed
-            print(f"\r🎵 Streaming | {bar} | {format_time(elapsed)} / {format_time(duration)} | Remaining: {format_time(remaining)}", end="", flush=True)
-            
-            await sleep(2)
-            
-    except Exception as e:
-        LOGGER.error(f"Error monitoring stream progress: {e}", exc_info=True)
-
-async def get_file_info(file_id):
-    """
-    Get file information from Telegram without downloading
-    """
-    try:
-        # Get file info using bot.get_messages approach
-        # This is a workaround since we need to get file size
-        from bot import bot
-        
-        # Try to get file info from the file_id
-        try:
-            # For now, we'll return a placeholder and update during download
-            # In a real implementation, you might want to use Telegram's getFile method
-            return {
-                'file_size': 0,  # Will be updated during download
-                'file_name': f"file_{file_id[:8]}",
-                'file_id': file_id
-            }
-        except Exception as e:
-            LOGGER.warning(f"Could not get detailed file info: {e}")
-            return {
-                'file_size': 0,
-                'file_name': f"file_{file_id[:8]}",
-                'file_id': file_id
-            }
-            
-    except Exception as e:
-        LOGGER.error(f"Error getting file info: {e}")
-        return None
-
-async def get_file_size_from_message(message, file_id):
-    """
-    Get file size from a Telegram message object
-    """
-    try:
-        if message.reply_to_message:
-            msg = message.reply_to_message
-            if msg.video:
-                return msg.video.file_size
-            elif msg.document:
-                return msg.document.file_size
-            elif msg.audio:
-                return msg.audio.file_size
-            elif msg.voice:
-                return msg.voice.file_size
-            elif msg.video_note:
-                return msg.video_note.file_size
-        return 0
-    except Exception as e:
-        LOGGER.error(f"Error getting file size from message: {e}")
-        return 0
+# Remove all the problematic functions
+# get_telegram_streaming_url, get_stream_dimensions, get_stream_duration, etc.
