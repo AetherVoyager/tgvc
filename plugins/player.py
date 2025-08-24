@@ -142,7 +142,7 @@ async def play_file_directly(client, message):
             await msg.edit("🚀 **Starting streaming-while-downloading...**")
             
             # Get file size for better progress tracking
-            file_size = await get_file_size_from_message(message, file_id)
+            file_size = get_file_size_from_message(message, file_id)
             if file_size:
                 size_mb = file_size / (1024 * 1024)
                 await msg.edit(f"🚀 **Starting streaming-while-downloading...**\n\n📊 **File size:** {size_mb:.1f} MB")
