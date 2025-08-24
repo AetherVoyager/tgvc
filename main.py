@@ -18,10 +18,17 @@ import sys
 # Global variables for graceful shutdown
 shutdown_event = asyncio.Event()
 shutdown_task = None
+shutdown_in_progress = False
 
 def signal_handler(signum, frame):
     """Handle shutdown signals gracefully"""
+    global shutdown_in_progress
+    if shutdown_in_progress:
+        print(f"\n🛑 Force exit requested...")
+        sys.exit(1)
+    
     print(f"\n🛑 Received signal {signum}. Starting graceful shutdown...")
+    shutdown_in_progress = True
     if shutdown_task:
         shutdown_task.set()
     else:
@@ -33,29 +40,30 @@ async def graceful_shutdown():
         print("🔄 Stopping group call...")
         from user import group_call
         try:
-            await group_call.leave_call()
-        except:
-            pass
+            await asyncio.wait_for(group_call.leave_call(), timeout=5.0)
+        except (asyncio.TimeoutError, Exception):
+            print("⚠️ Group call stop timed out or failed")
         
         print("🔄 Stopping bot...")
         try:
-            await bot.stop()
-        except:
-            pass
+            await asyncio.wait_for(bot.stop(), timeout=5.0)
+        except (asyncio.TimeoutError, Exception):
+            print("⚠️ Bot stop timed out or failed")
         
         print("🔄 Stopping user client...")
         try:
             from user import USER
-            await USER.stop()
-        except:
-            pass
+            await asyncio.wait_for(USER.stop(), timeout=5.0)
+        except (asyncio.TimeoutError, Exception):
+            print("⚠️ User client stop timed out or failed")
         
         print("✅ Graceful shutdown completed!")
         
     except Exception as e:
         print(f"❌ Error during shutdown: {e}")
     finally:
-        sys.exit(0)
+        print("🚪 Exiting...")
+        os._exit(0)  # Force exit
 
 if Config.DATABASE_URI:
     from utils.database import get_db
@@ -145,8 +153,12 @@ async def main():
     except asyncio.TimeoutError:
         pass
     
-    # Perform graceful shutdown
-    await graceful_shutdown()
+    # Perform graceful shutdown with timeout
+    try:
+        await asyncio.wait_for(graceful_shutdown(), timeout=15.0)
+    except asyncio.TimeoutError:
+        print("⏰ Shutdown timed out, forcing exit...")
+        os._exit(1)
 
 if __name__ == '__main__':
     asyncio.get_event_loop().run_until_complete(main())
