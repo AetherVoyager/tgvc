@@ -12,6 +12,50 @@ from pyrogram import idle
 from bot import bot
 import asyncio
 import os
+import signal
+import sys
+
+# Global variables for graceful shutdown
+shutdown_event = asyncio.Event()
+shutdown_task = None
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals gracefully"""
+    print(f"\n🛑 Received signal {signum}. Starting graceful shutdown...")
+    if shutdown_task:
+        shutdown_task.set()
+    else:
+        sys.exit(0)
+
+async def graceful_shutdown():
+    """Perform graceful shutdown of all services"""
+    try:
+        print("🔄 Stopping group call...")
+        from user import group_call
+        try:
+            await group_call.leave_call()
+        except:
+            pass
+        
+        print("🔄 Stopping bot...")
+        try:
+            await bot.stop()
+        except:
+            pass
+        
+        print("🔄 Stopping user client...")
+        try:
+            from user import USER
+            await USER.stop()
+        except:
+            pass
+        
+        print("✅ Graceful shutdown completed!")
+        
+    except Exception as e:
+        print(f"❌ Error during shutdown: {e}")
+    finally:
+        sys.exit(0)
 
 if Config.DATABASE_URI:
     from utils.database import get_db
@@ -19,6 +63,13 @@ if Config.DATABASE_URI:
 
 
 async def main():
+    global shutdown_task
+    shutdown_task = asyncio.Event()
+    
+    # Set up signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
     await bot.start()
     Config.BOT_USERNAME = (await bot.get_me()).username
     LOGGER.info(f"{Config.BOT_USERNAME} Started.")
@@ -88,8 +139,14 @@ async def main():
         await idle()
         return
 
-    await idle()
-    await bot.stop()
+    # Wait for shutdown signal or idle
+    try:
+        await asyncio.wait_for(shutdown_task.wait(), timeout=None)
+    except asyncio.TimeoutError:
+        pass
+    
+    # Perform graceful shutdown
+    await graceful_shutdown()
 
 if __name__ == '__main__':
     asyncio.get_event_loop().run_until_complete(main())
