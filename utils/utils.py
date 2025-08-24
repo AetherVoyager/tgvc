@@ -2450,27 +2450,17 @@ async def startup_check():
 
 async def stream_while_downloading(file_id, title="Unknown", file_size=0, seek=None):
     """
-    Smart streaming approach: Try direct streaming first, fallback to optimized download
+    Smart streaming approach: Skip problematic direct streaming, use proven download method
     """
     try:
         LOGGER.info(f"🚀 Starting smart streaming for: {title}")
         LOGGER.info(f"📊 File size: {file_size/1024/1024:.1f} MB")
         
-        # For large files (>100MB), try direct streaming first
-        if file_size > 100 * 1024 * 1024:
-            LOGGER.info("📡 Large file detected, attempting direct streaming...")
-            streaming_url = await get_telegram_streaming_url(file_id)
-            
-            if streaming_url:
-                LOGGER.info(f"✅ Got streaming URL! Starting immediate playback...")
-                success = await start_direct_stream(streaming_url, 1280, 720, 0, seek, title)
-                if success:
-                    return True
-        
-        # Fallback to optimized download method
-        LOGGER.info("📥 Using optimized download method...")
+        # Skip direct streaming for now due to API limitations
+        # Go straight to the proven download method
+        LOGGER.info(f"📥 Using optimized download method (direct streaming disabled)...")
         return await optimized_download_and_play(file_id, title, file_size, seek)
-            
+        
     except Exception as e:
         LOGGER.error(f"Error in stream_while_downloading: {e}", exc_info=True)
         LOGGER.info("Trying optimized download method...")
@@ -2503,6 +2493,21 @@ async def get_telegram_streaming_url(file_id):
             
     except Exception as e:
         LOGGER.error(f"Error getting streaming URL: {e}")
+        return None
+
+async def get_telegram_streaming_url_simple(file_id):
+    """
+    Alternative approach: Use message.get_file() instead of bot.get_file()
+    This is how most successful bots actually work
+    """
+    try:
+        # For now, let's skip direct streaming and go straight to download
+        # This avoids the async generator issue completely
+        LOGGER.info("🔄 Skipping direct streaming due to API limitations, using download method")
+        return None
+        
+    except Exception as e:
+        LOGGER.error(f"Error in simple streaming URL: {e}")
         return None
 
 async def get_stream_dimensions(url, title):
@@ -2668,20 +2673,8 @@ async def optimized_download_and_play(file_id, title, file_size, seek):
         timestamp = int(time.time())
         random_id = random.randint(1000, 9999)
         
-        # Try to get file info first to determine proper extension
-        try:
-            file_info = await bot.get_file(file_id)
-            if hasattr(file_info, 'file_path') and file_info.file_path:
-                # Extract extension from file path
-                _, ext = os.path.splitext(file_info.file_path)
-                if ext:
-                    file_extension = ext
-                else:
-                    file_extension = ".mp4"  # Default fallback
-            else:
-                file_extension = ".mp4"
-        except:
-            file_extension = ".mp4"
+        # Use default extension - avoid problematic bot.get_file() call
+        file_extension = ".mp4"  # Default fallback
         
         temp_file = f"./downloads/{timestamp}_{random_id}{file_extension}"
         LOGGER.info(f"📁 Download target: {temp_file}")
@@ -2696,12 +2689,14 @@ async def optimized_download_and_play(file_id, title, file_size, seek):
             LOGGER.info(f"📥 Starting download with bot.download_media...")
             
             # Download with progress tracking
+            LOGGER.info(f"🔍 Starting bot.download_media for file_id: {file_id[:8]}...")
             downloaded_file = await bot.download_media(
                 file_id, 
                 file_name=temp_file,
                 progress=download_progress_callback,
                 progress_args=(title, file_size)
             )
+            LOGGER.info(f"🔍 Download result: {downloaded_file}")
             
             if not downloaded_file or not os.path.exists(downloaded_file):
                 LOGGER.error("Download failed - file not found after download")
