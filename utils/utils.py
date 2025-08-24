@@ -2523,3 +2523,67 @@ async def optimized_download_and_play(file_id, title, file_size, seek):
 
 # Remove all the problematic functions
 # get_telegram_streaming_url, get_stream_dimensions, get_stream_duration, etc.
+
+# Add back essential functions that were removed
+def get_file_info(file_id):
+    """
+    Get basic file information
+    """
+    try:
+        return {"file_id": file_id, "file_size": 0}
+    except:
+        return None
+
+def get_file_size_from_message(message, file_id):
+    """
+    Extract file size from Telegram message
+    """
+    try:
+        if hasattr(message, 'document') and message.document:
+            return message.document.file_size
+        elif hasattr(message, 'video') and message.video:
+            return message.video.file_size
+        elif hasattr(message, 'audio') and message.audio:
+            return message.audio.file_size
+        else:
+            return 0
+    except:
+        return 0
+
+async def start_streaming_from_file(file_path, width, height, duration, seek):
+    """
+    Start streaming from a local file
+    """
+    try:
+        LOGGER.info(f"🎬 Starting stream from file: {file_path}")
+        
+        # Join call and start playing
+        if not await check_vc():
+            return False
+            
+        # Create media stream
+        if seek:
+            start = str(seek['start'])
+            end = str(seek['end'])
+            ffmpeg_params = f'-ss {start} -t {end}'
+        else:
+            ffmpeg_params = None
+        
+        # Start streaming
+        await group_call.start_audio_file(
+            file_path,
+            bitrate=48000,
+            ffmpeg_parameters=ffmpeg_params
+        )
+        
+        LOGGER.info(f"✅ Started streaming: {os.path.basename(file_path)}")
+        
+        # Monitor stream end
+        if duration > 0:
+            asyncio.create_task(stream_end_monitor(file_path, seek))
+        
+        return True
+        
+    except Exception as e:
+        LOGGER.error(f"Error starting stream: {e}")
+        return False
